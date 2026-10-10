@@ -76,6 +76,7 @@ Everything is in the menu bar; the toolbar can be hidden with **View → Hide To
 | Edit → Find | Find…, Find and Replace…, Find Next / Previous, Use Selection for Find | ⌘F, ⌥⌘F, ⌘G / ⇧⌘G, ⌘E |
 | Format | Italic | ⌘I |
 | Format | New Chapter | ⇧⌘N |
+| (in a chapter title) | Go to the start of the chapter's text | Return or Tab |
 | Format | Scene Break | ⇧⌘8 (⇧8 is the asterisk) |
 | Format | Convert Quotes and Dashes in This Book | |
 | Format | Page Style…, Match a Book on My Shelf… | |

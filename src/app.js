@@ -385,8 +385,9 @@ const Undo = (() => {
       for(const n of r.removedNodes) r.target.insertBefore(n, ref);
     }
   }
-  function step(from, to, selKey){
-    close();
+  function step(dir, selKey){
+    close();   // finish the group being typed first (this may start a fresh redo list)
+    const from = dir === 'undo' ? done : undone, to = dir === 'undo' ? undone : done;
     const g = from.pop(); if(!g) return false;
     applying = true;
     try{
@@ -406,10 +407,11 @@ const Undo = (() => {
   }
   return {
     beforeEdit, afterEdit, command, close,
-    undo: () => step(done, undone, 'before'),
-    redo: () => step(undone, done, 'before'),
+    undo: () => step('undo', 'before'),
+    redo: () => step('redo', 'before'),
     reset(){ watch.takeRecords(); done = []; undone = []; cur = null; lastKind = ''; lastSel = null; },
     get canUndo(){ return done.length > 0 || !!(cur && cur.records.length); },
+    debug(){ flush(); return {done: done.length, undone: undone.length, cur: cur ? cur.records.length : null, lastKind}; },
   };
 })();
 // What happens after any change to the manuscript (typing, undo, commands).
@@ -664,13 +666,31 @@ function keepCaretChapterLive(){
   liveSecs = want;
   return true;
 }
+// WebKit (the Mac's engine) can't type reliably next to a drop cap: letters
+// land in the chapter title or replace each other, and clicks after the big
+// letter don't place the cursor. So while the cursor is in a chapter's
+// opening paragraph, that paragraph is shown without its drop cap.
+let editingOpening = null;
+function markOpeningEdit(){
+  const sel = getSelection();
+  let p = null;
+  if(sel.rangeCount && editor.contains(sel.anchorNode)){
+    const b = topBlock(sel.anchorNode);
+    if(b && b.tagName === 'P' && b.previousElementSibling && b.previousElementSibling.tagName === 'H2') p = b;
+  }
+  if(p === editingOpening) return;
+  if(editingOpening) setClass(editingOpening, 'editing', false);
+  if(p) setClass(p, 'editing', true);
+  editingOpening = p;
+}
 function sectionOfNode(n){ const b = topBlock(n); return b ? b.parentNode : (isSection(n) ? n : null); }
 document.addEventListener('selectionchange', ()=>{
   const sel=getSelection(); if(!sel.rangeCount || !editor.contains(sel.anchorNode)) return;
-  keepCaretChapterLive();
+  keepCaretChapterLive(); markOpeningEdit();
   requestAnimationFrame(followCaret);
 });
 editor.addEventListener('beforeinput', ()=>{
+  markOpeningEdit();
   if(keepCaretChapterLive()) editor.getBoundingClientRect();   // draw it now, before the edit lands
 });
 editor.addEventListener('mousedown', ()=>{ freeView=false; });
@@ -692,8 +712,13 @@ function newParagraphAfter(){
 editor.addEventListener('keydown', e=>{
   const sel=getSelection(); if(!sel.rangeCount) return;
   const range=sel.getRangeAt(0), block=topBlock(range.startContainer);
-  if(e.key==='Enter' && !e.shiftKey && block && block.tagName==='H2'){
-    e.preventDefault(); Undo.command(()=>{ caretTo(block, true); newParagraphAfter(); });
+  if((e.key==='Enter' || e.key==='Tab') && !e.shiftKey && block && block.tagName==='H2'){
+    // From a chapter title, Enter or Tab goes to the start of the chapter's
+    // text, making its first paragraph if there isn't one yet.
+    e.preventDefault();
+    const next = block.nextElementSibling;
+    if(next && next.tagName === 'P'){ caretTo(next, false); keepCaretChapterLive(); markOpeningEdit(); }
+    else Undo.command(()=>{ caretTo(block, true); newParagraphAfter(); });
   } else if(e.key==='Backspace' && range.collapsed && block && block.tagName==='P' && block.previousElementSibling && block.previousElementSibling.tagName==='H2' && atStart(block, range) && block.textContent.trim()){
     e.preventDefault();   // don't merge the first paragraph into the chapter title
   } else if(e.key==='Tab'){ e.preventDefault(); }
@@ -1618,7 +1643,7 @@ async function boot(){
 let rz; window.addEventListener('resize', ()=>{ clearTimeout(rz); rz=setTimeout(()=>{ const firstPage=view*ppv; fit(); sig=''; relayout(); setView(Math.floor(firstPage/ppv)); followCaret(); }, 120); });
 
 // exposed for tests
-window.GalleyProof = { toMarkdown, textToHTML, countWords, saveNow, openBook, loadText, undo: ()=>Undo.undo(), redo: ()=>Undo.redo(), editorWords, get path(){ return bookPath; } };
+window.GalleyProof = { toMarkdown, textToHTML, countWords, saveNow, openBook, loadText, undo: ()=>Undo.undo(), redo: ()=>Undo.redo(), undoDebug: ()=>Undo.debug(), editorWords, get path(){ return bookPath; } };
 
 boot();
 })();
