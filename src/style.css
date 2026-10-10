@@ -140,6 +140,5 @@ body:not(.desktop) .desktop-only{display:none!important}
 #editor h2.chapter::before{content:attr(data-label); display:block; font-size:calc(var(--fs) * .82); line-height:var(--L); margin-bottom:var(--L);
   font-variant-caps:all-small-caps; letter-spacing:.22em; color:var(--ink-soft)}
 #editor h2.chapter.empty::after{content:"Chapter title"; opacity:.3; font-style:italic}
-#editor h2.chapter + p::first-line{font-variant-caps:small-caps; letter-spacing:.03em}
 #editor p.scene{text-indent:0; text-align:center; letter-spacing:.6em; color:var(--ink-soft)}
 #editor i, #editor em{font-style:italic}
