@@ -21,9 +21,10 @@
     <button class="btn" id="bScene" title="Insert a scene break">Scene break</button>
     <button class="btn" id="bChap" title="Start a new chapter on a fresh page">New chapter</button>
     <span class="sep" aria-hidden="true"></span>
+    <button class="btn" id="bChapters" aria-pressed="false" data-panel="chapters" title="Chapters (⇧⌘C)">Chapters</button>
     <button class="btn" id="bBooks" aria-pressed="false" data-panel="books">Books</button>
     <button class="btn" id="bHistory" aria-pressed="false" data-panel="history" title="Saved versions of this book">History</button>
-    <button class="btn" id="bSetup" aria-pressed="false" data-panel="setup">Book setup</button>
+    <button class="btn" id="bSetup" aria-pressed="false" data-panel="setup" title="Book setup (⇧⌘P)">Setup</button>
     <button class="btn" id="bFocus" title="Hide everything but the book (Esc to return)">Focus</button>
   </div>
 </header>
@@ -34,6 +35,23 @@
     <button class="btn" id="alertYes"></button>
     <button class="btn" id="alertNo"></button>
   </span>
+</div>
+
+<div id="findbar" class="findbar" hidden role="search" aria-label="Find and replace">
+  <div class="frow">
+    <input type="search" id="fFind" placeholder="Find" aria-label="Find" autocomplete="off" spellcheck="false">
+    <span id="fCount" class="fcount" aria-live="polite"></span>
+    <button class="btn arrow" id="fPrev" title="Previous (⇧⌘G)" aria-label="Previous match">‹</button>
+    <button class="btn arrow" id="fNext" title="Next (⌘G)" aria-label="Next match">›</button>
+    <label class="check"><input type="checkbox" id="fCase"> Match case</label>
+    <label class="check"><input type="checkbox" id="fWord"> Whole words</label>
+  </div>
+  <div class="frow">
+    <input type="text" id="fRepl" placeholder="Replace with" aria-label="Replace with" autocomplete="off" spellcheck="false">
+    <button class="btn" id="fOne">Replace</button>
+    <button class="btn" id="fAll">Replace All</button>
+    <button class="btn" id="fClose">Done</button>
+  </div>
 </div>
 
 <main id="viewport">
@@ -86,6 +104,7 @@
     </section>
     <section>
       <h4>Manuscript</h4>
+      <label class="check"><input type="checkbox" id="sSmart" checked> Smart punctuation: curly quotes, em dashes (type --) and ellipses (type ...)</label>
       <p class="hint">Type <b>* * *</b> on its own line for a scene break. In pasted or imported text, blank lines separate paragraphs, a line starting with <b>#</b> starts a chapter, and <b>*words*</b> become italic.</p>
       <div class="acts">
         <button class="btn" id="aCopy">Copy manuscript</button>
@@ -94,6 +113,14 @@
       </div>
       <textarea id="copyBox" hidden readonly aria-label="Manuscript text"></textarea>
     </section>
+    <button class="btn" data-close>Done</button>
+  </aside>
+
+  <!-- Chapters -->
+  <aside id="chapters" class="panel" hidden aria-label="Chapters">
+    <h3>Chapters</h3>
+    <p class="hint" id="chapSummary"></p>
+    <ol class="list chapters" id="chapList"></ol>
     <button class="btn" data-close>Done</button>
   </aside>
 

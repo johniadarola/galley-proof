@@ -85,15 +85,27 @@ pub fn build<R: Runtime>(app: &AppHandle<R>, st: &MenuState) -> tauri::Result<Me
     }
     let file = file.build()?;
 
-    // ---- Edit: the system's own items
+    // ---- Edit
+    let find = SubmenuBuilder::new(app, "Find")
+        .item(&item("find", "Find…", Some("CmdOrCtrl+F"))?)
+        .item(&item("replace", "Find and Replace…", Some("Alt+CmdOrCtrl+F"))?)
+        .item(&item("find_next", "Find Next", Some("CmdOrCtrl+G"))?)
+        .item(&item("find_prev", "Find Previous", Some("CmdOrCtrl+Shift+G"))?)
+        .item(&item("find_selection", "Use Selection for Find", Some("CmdOrCtrl+E"))?)
+        .build()?;
+
+    // Undo and Redo use Galley Proof's own history (see app.js), which can
+    // follow chapters being split and joined; the rest are the system's own.
     let edit = SubmenuBuilder::new(app, "Edit")
-        .undo()
-        .redo()
+        .item(&item("undo", "Undo", Some("CmdOrCtrl+Z"))?)
+        .item(&item("redo", "Redo", Some("CmdOrCtrl+Shift+Z"))?)
         .separator()
         .cut()
         .copy()
         .paste()
         .select_all()
+        .separator()
+        .item(&find)
         .build()?;
 
     // ---- Format: the only formatting a novel needs
@@ -103,6 +115,8 @@ pub fn build<R: Runtime>(app: &AppHandle<R>, st: &MenuState) -> tauri::Result<Me
         .item(&item("chapter", "New Chapter", Some("CmdOrCtrl+Shift+N"))?)
         .item(&item("scene", "Scene Break", Some("CmdOrCtrl+Shift+8"))?)
         .separator()
+        .item(&item("smarten_book", "Convert Quotes and Dashes in This Book", None)?)
+        .separator()
         .item(&item("page_style", "Page Style…", None)?)
         .item(&item("match", "Match a Book on My Shelf…", None)?)
         .build()?;
@@ -111,6 +125,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>, st: &MenuState) -> tauri::Result<Me
     let toolbar = if st.toolbar_hidden { "Show Toolbar" } else { "Hide Toolbar" };
     let view = SubmenuBuilder::new(app, "View")
         .item(&item("books", "Books…", Some("CmdOrCtrl+Shift+L"))?)
+        .item(&item("chapters", "Chapters…", Some("CmdOrCtrl+Shift+C"))?)
         .separator()
         .item(&item("prev", "Previous Pages", Some("Alt+CmdOrCtrl+Left"))?)
         .item(&item("next", "Next Pages", Some("Alt+CmdOrCtrl+Right"))?)

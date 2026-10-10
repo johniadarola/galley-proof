@@ -28,6 +28,13 @@ Installing, updating or removing the app never touches these folders. Keeping th
 - **Big-deletion guard:** if one action removes 300 or more words, a bar offers to put them back.
 - **Email to yourself:** <kbd>Ctrl</kbd>/<kbd>⌘</kbd> <kbd>Shift</kbd> <kbd>E</kbd> sends the whole manuscript as an attachment. Set it up in **Book setup → Email backup**. For Gmail, use an [app password](https://myaccount.google.com/apppasswords) (two-step verification must be on). The password is stored only on your computer, in the app's settings file.
 
+## Writing aids
+
+- **Smart punctuation** (on by default, Book setup → Manuscript): straight quotes become curly as you type, `--` becomes an em dash and `...` an ellipsis. Pasted and imported text is converted too; **Format → Convert Quotes and Dashes in This Book** fixes an existing manuscript in one go.
+- **Find and Replace** treats straight and curly quotes as the same, so searching for *don't* finds *don’t*. Replace All is a single undo step.
+- **Chapters** (⇧⌘C) lists every chapter with its page number and word count; click one to jump there, or use the arrows to move a whole chapter.
+- **Undo** remembers every change to the manuscript, including new chapters, moved chapters, Replace All, imports and restores from History, and groups typing into sensible steps.
+
 ## Page templates
 
 **Book setup → Page style** offers typical shapes (mass-market paperback, trade paperback, hardcover) and any books you've matched.
@@ -64,12 +71,16 @@ Everything is in the menu bar; the toolbar can be hidden with **View → Hide To
 | File | Email to Myself | ⇧⌘E |
 | File | Show in Finder | |
 | File | Book Setup… | ⇧⌘P |
-| Edit | Undo, Redo, Cut, Copy, Paste, Select All | the usual |
+| Edit | Undo / Redo (Galley Proof's own history; see below) | ⌘Z / ⇧⌘Z |
+| Edit | Cut, Copy, Paste, Select All | the usual |
+| Edit → Find | Find…, Find and Replace…, Find Next / Previous, Use Selection for Find | ⌘F, ⌥⌘F, ⌘G / ⇧⌘G, ⌘E |
 | Format | Italic | ⌘I |
 | Format | New Chapter | ⇧⌘N |
 | Format | Scene Break | ⇧⌘8 (⇧8 is the asterisk) |
+| Format | Convert Quotes and Dashes in This Book | |
 | Format | Page Style…, Match a Book on My Shelf… | |
 | View | Books… | ⇧⌘L |
+| View | Chapters… (jump to a chapter, move chapters) | ⇧⌘C |
 | View | Previous / Next Pages | ⌥⌘← / ⌥⌘→ (also Page Up / Page Down) |
 | View | Hide Toolbar | ⌥⌘T |
 | View | Focus Mode | ⇧⌘F |

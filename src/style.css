@@ -57,6 +57,15 @@ body.focus header, body.focus footer, body.notoolbar header{display:none}
 #toast{position:fixed; left:50%; bottom:46px; transform:translateX(-50%); z-index:20; background:var(--ui-ink); color:var(--chrome); padding:8px 14px; border-radius:8px; font-size:13px; box-shadow:0 8px 24px -8px rgba(0,0,0,.5); max-width:calc(100vw - 32px)}
 #toast.bad{background:var(--warn-bg); color:var(--ui-ink); border:1px solid var(--warn)}
 
+/* ---------- find bar ---------- */
+.findbar{display:grid; gap:6px; padding:8px 16px; background:var(--chrome); border-bottom:1px solid var(--line); font-size:13px}
+.frow{display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px}
+.frow input[type=search], .frow input[type=text]{flex:1 1 220px; min-width:0; max-width:420px; border:1px solid var(--line); border-radius:6px; padding:5px 8px; background:color-mix(in srgb, var(--chrome) 60%, var(--desk)); color:var(--ui-ink)}
+.frow .check{display:flex; align-items:center; gap:5px; color:var(--muted)}
+.fcount{min-width:6.5em; color:var(--muted); font-variant-numeric:tabular-nums}
+::highlight(gp-find){background-color:rgba(214,170,40,.35)}
+::highlight(gp-find-current){background-color:rgba(214,120,20,.6)}
+
 /* ---------- side panels ---------- */
 .panel{position:absolute; top:8px; right:16px; z-index:10; width:min(360px, calc(100vw - 32px)); max-height:calc(100% - 16px); overflow:auto; background:var(--chrome); border:1px solid var(--line); border-radius:10px; padding:16px; box-shadow:0 14px 40px -12px rgba(0,0,0,.45); font-size:13px; display:grid; gap:14px; align-content:start}
 .panel h3{margin:0; font-family:"EB Garamond",Georgia,serif; font-weight:500; font-size:20px}
@@ -86,6 +95,12 @@ body.focus header, body.focus footer, body.notoolbar header{display:none}
 .list .meta{flex:1; min-width:0; display:grid}
 .list .meta b{font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 .list .meta span{font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums}
+.list.chapters li{padding:5px 6px; gap:6px}
+.list.chapters .go{flex:1; min-width:0; display:grid; text-align:left; background:none; border:0; padding:2px 4px; border-radius:5px; cursor:pointer; color:inherit}
+.list.chapters .go:hover{background:color-mix(in srgb, var(--ui-ink) 6%, transparent)}
+.list.chapters .go b{font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.list.chapters .go span{font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums}
+.list.chapters .mv{padding:2px 7px; font-size:12px}
 .list .empty{color:var(--muted); font-size:12px}
 body:not(.desktop) .desktop-only{display:none!important}
 
@@ -107,16 +122,21 @@ body:not(.desktop) .desktop-only{display:none!important}
 .cp p{margin:0 0 .7em}
 
 /* ---------- the typeset text ---------- */
-#editor{position:absolute; outline:none; color:var(--ink); font-family:var(--face);
-  column-fill:auto; text-align:justify; hyphens:auto; -webkit-hyphens:auto; hyphenate-limit-chars:6 3 2;
+#editor{position:absolute; left:0; top:0; width:1px; height:100%; outline:none; color:var(--ink); font-family:var(--face);
+  text-align:justify; hyphens:auto; -webkit-hyphens:auto; hyphenate-limit-chars:6 3 2;
   font-kerning:normal; font-variant-ligatures:common-ligatures; text-rendering:optimizeLegibility;
-  orphans:1; widows:1; caret-color:#6b2a24; overflow:visible}
+  orphans:1; widows:1; caret-color:#6b2a24}
+/* one column box per chapter, placed at its first page by app.js */
+#editor > section{position:absolute; left:0; top:var(--top); height:var(--bh); display:block;
+  column-width:var(--T); column-gap:var(--gap); column-fill:auto;
+  content-visibility:auto; contain-intrinsic-size:auto var(--T) var(--bh)}
+#editor > section.live{content-visibility:visible}
 #editor ::selection{background:rgba(107,42,36,.2)}
 #editor p{margin:0; text-indent:1.4em}
-#editor > p:first-child, #editor h2.chapter + p, #editor p.scene + p{text-indent:0}
+#editor > section:first-child > p:first-child, #editor h2.chapter + p, #editor p.scene + p{text-indent:0}
 #editor h2.chapter{break-before:column; break-after:avoid; margin:0; padding-top:calc(var(--L) * 5); margin-bottom:var(--L);
   font-weight:400; font-size:calc(var(--fs) * 1.6); line-height:calc(var(--L) * 2); text-align:center; hyphens:manual; text-wrap:balance; letter-spacing:.01em}
-#editor > h2.chapter:first-child{break-before:auto}
+#editor section > h2.chapter:first-child{break-before:auto}
 #editor h2.chapter::before{content:attr(data-label); display:block; font-size:calc(var(--fs) * .82); line-height:var(--L); margin-bottom:var(--L);
   font-variant-caps:all-small-caps; letter-spacing:.22em; color:var(--ink-soft)}
 #editor h2.chapter.empty::after{content:"Chapter title"; opacity:.3; font-style:italic}

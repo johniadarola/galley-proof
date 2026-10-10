@@ -1,6 +1,6 @@
 [package]
 name = "galley-proof"
-version = "0.3.0"
+version = "0.4.0"
 description = "A writing app that shows your draft as finished book pages"
 edition = "2021"
 

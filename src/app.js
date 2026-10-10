@@ -130,22 +130,43 @@ function textToHTML(text, lenient){
   }).join('');
 }
 
+// Typographer's punctuation: curly quotes and apostrophes, em dashes and
+// ellipses. Used on pasted and imported text and by Format → Convert.
+function smarten(t){
+  return t
+    .replace(/\.\.\./g, '…')
+    .replace(/(^|[^-])---?(?!-)/gm, '$1—')
+    .replace(/(^|[\s“‘(\[—])'(\d\d(?:s|’s)?\b)/gm, '$1’$2')                     // ’90s
+    .replace(/(^|[\s“(\[—])'(tis|twas|em|cause|til|round|bout|n)\b/gim, '$1’$2') // ’tis, rock ’n’ roll
+    .replace(/(^|[\s(\[{—–*‘])"/gm, '$1“').replace(/"/g, '”')
+    .replace(/(^|[\s(\[{—–*“])'/gm, '$1‘').replace(/'/g, '’');
+}
+const smartOn = () => config.smart_punct !== false;
+
 function inlineToText(el){
+  return inlineRaw(el, false).replace(/\s+/g,' ').trim();
+}
+// Italic runs become *word*. Spaces at the edge of an italic run are moved
+// outside the asterisks so "*word* next" never turns into "*word*next".
+function inlineRaw(el, inItalic){
   let out='';
   el.childNodes.forEach(n=>{
     if(n.nodeType===3) out += n.textContent;
     else if(n.nodeType===1){
       if(n.tagName==='BR') return;
-      const inner = inlineToText(n);
-      out += /^(I|EM)$/.test(n.tagName) && inner.trim() ? `*${inner}*` : inner;
+      const ital = /^(I|EM)$/.test(n.tagName) && !inItalic;
+      const inner = inlineRaw(n, inItalic || ital);
+      if(!ital){ out += inner; return; }
+      const m = inner.match(/^(\s*)([\s\S]*?)(\s*)$/);
+      out += m[2] ? `${m[1]}*${m[2]}*${m[3]}` : inner;
     }
   });
-  return out.replace(/\s+/g,' ').trim();
+  return out;
 }
 
 function toMarkdown(){
   const parts = [];
-  for(const el of editor.children){
+  for(const el of allBlocks()){
     if(el.tagName==='H2') parts.push(('# ' + inlineToText(el)).trimEnd() || '#');
     else if(el.classList.contains('scene')) parts.push('* * *');
     else { const t = inlineToText(el); if(t) parts.push(t); }
@@ -153,7 +174,250 @@ function toMarkdown(){
   return parts.join('\n\n') + '\n';
 }
 
-const countWords = md => (md.replace(/^\s*\* \* \*\s*$/gm,'').match(/[\p{L}\p{N}’'\-]+/gu)||[]).length;
+const WORD_RE = /[\p{L}\p{N}’'\-]+/gu;
+const countWords = md => (md.replace(/^\s*\* \* \*\s*$/gm,'').match(WORD_RE)||[]).length;
+
+/* ================================================================ structure */
+
+// The manuscript is laid out one chapter at a time:
+//   #editor > section > h2.chapter, p, p, …
+// Every chapter starts on a fresh page anyway, so each section is its own
+// column box placed at its first page, and the browser skips drawing the
+// ones that are off screen. Typing in a 150,000-word book then only re-lays
+// out the chapter being edited. On disk it's still one plain text file.
+
+// Change a class only if it actually changes: no-op edits to the page still
+// count as changes to the browser and would break up undo steps.
+const setClass = (el, cls, on) => { if(el.classList.contains(cls) !== !!on) el.classList.toggle(cls, !!on); };
+
+const isSection = n => !!n && n.nodeType === 1 && n.tagName === 'SECTION' && n.parentNode === editor;
+const sections = () => [...editor.children].filter(isSection);
+const allBlocks = () => editor.querySelectorAll(':scope > section > *');
+function topBlock(n){
+  while(n && n !== editor){
+    if(n.parentNode && isSection(n.parentNode)) return n;
+    n = n.parentNode;
+  }
+  return null;
+}
+
+// A MutationObserver reports what changed, so word counts, cleanup and
+// layout only revisit the paragraphs and chapters that were touched.
+const blockCounts = new WeakMap();
+const dirtyBlocks = new Set();      // paragraphs whose word count may have changed
+const dirtySections = new Set();    // chapters to clean up and re-measure
+let liveWords = 0, recountAll = true, structureDirty = true, layoutAll = true;
+const wordWatcher = new MutationObserver(noteMutations);
+wordWatcher.observe(editor, {childList:true, subtree:true, characterData:true});
+function forgetCounts(n){
+  if(n.nodeType !== 1) return;
+  if(blockCounts.has(n)){ liveWords -= blockCounts.get(n); blockCounts.delete(n); }
+  if(n.tagName === 'SECTION') [...n.children].forEach(forgetCounts);
+}
+function noteMutations(records){
+  for(const m of records){
+    const t = m.target;
+    if(m.type === 'childList' && (t === editor || isSection(t))){
+      structureDirty = true;
+      if(isSection(t)) dirtySections.add(t);
+      m.removedNodes.forEach(forgetCounts);
+      m.addedNodes.forEach(n=>{
+        if(n.nodeType !== 1) return;
+        if(n.tagName === 'SECTION'){ dirtySections.add(n); [...n.children].forEach(b=>dirtyBlocks.add(b)); }
+        else dirtyBlocks.add(n);
+      });
+      continue;
+    }
+    const b = topBlock(t);
+    if(b){ dirtyBlocks.add(b); dirtySections.add(b.parentNode); }
+  }
+}
+function blockWords(el){ return el.classList.contains('scene') ? 0 : (el.textContent.match(WORD_RE)||[]).length; }
+function editorWords(){
+  noteMutations(wordWatcher.takeRecords());
+  if(recountAll){
+    liveWords = 0;
+    for(const el of allBlocks()){ const c = blockWords(el); blockCounts.set(el, c); liveWords += c; }
+    recountAll = false; dirtyBlocks.clear();
+    return liveWords;
+  }
+  for(const el of dirtyBlocks){
+    const old = blockCounts.get(el) || 0;
+    if(el.isConnected && isSection(el.parentNode)){ const c = blockWords(el); blockCounts.set(el, c); liveWords += c - old; }
+    else if(blockCounts.has(el)){ liveWords -= old; blockCounts.delete(el); }
+  }
+  dirtyBlocks.clear();
+  return liveWords;
+}
+
+function saveSelection(){
+  const s = getSelection(); if(!s.rangeCount) return null;
+  const r = s.getRangeAt(0); return [r.startContainer, r.startOffset, r.endContainer, r.endOffset];
+}
+function restoreSelection(v){
+  if(!v || !editor.contains(v[0]) || !editor.contains(v[2])) return;
+  try{
+    const s = getSelection();
+    if(s.rangeCount){ const r = s.getRangeAt(0); if(r.startContainer===v[0] && r.startOffset===v[1] && r.endContainer===v[2] && r.endOffset===v[3]) return; }
+    s.setBaseAndExtent(v[0], Math.min(v[1], nodeLen(v[0])), v[2], Math.min(v[3], nodeLen(v[2])));
+  }catch(e){}
+}
+const nodeLen = n => n.nodeType === 3 ? n.data.length : n.childNodes.length;
+const newSection = () => { const s = document.createElement('section'); return s; };
+
+// Keep the shape the layout depends on: only sections at the top level, only
+// paragraphs and chapter headings inside them, each chapter heading first in
+// its own section. Editing (pasting, deleting a heading, the browser's own
+// Enter) can break those rules; this puts them back without losing the caret.
+function normalizeStructure(){
+  noteMutations(wordWatcher.takeRecords());
+  const sel = saveSelection();
+  let moved = false;
+  if(structureDirty){
+    let cur = null;
+    for(const n of [...editor.childNodes]){
+      if(isSection(n)){ cur = n; continue; }
+      if((n.nodeType === 3 && !n.textContent.trim()) || (n.nodeType === 1 && n.tagName === 'BR')){ n.remove(); continue; }
+      if(!cur){ cur = newSection(); editor.insertBefore(cur, n); }
+      cur.appendChild(n); moved = true;
+    }
+  }
+  const touched = structureDirty ? sections() : [...dirtySections].filter(isSection);
+  for(const sec of touched) moved = fixBlocks(sec) || moved;
+  if(structureDirty){
+    // a heading that isn't first starts a new section
+    for(const sec of sections()){
+      let cur = sec;
+      for(const n of [...sec.children]){
+        if(n.tagName === 'H2' && n !== sec.firstElementChild){ const ns = newSection(); cur.after(ns); cur = ns; moved = true; }
+        if(cur !== sec) cur.appendChild(n);
+      }
+    }
+    // a section without a heading joins the one before it (the first may be a prologue)
+    const secs = sections();
+    for(let i = secs.length - 1; i >= 1; i--){
+      const sec = secs[i];
+      if(sec.firstElementChild && sec.firstElementChild.tagName === 'H2') continue;
+      const prev = secs[i-1];
+      while(sec.firstChild) prev.appendChild(sec.firstChild);
+      sec.remove(); moved = true;
+    }
+    for(const sec of sections()) if(!sec.firstElementChild){ sec.remove(); moved = true; }
+    if(!sections().length){ const sec = newSection(); sec.innerHTML = '<p><br></p>'; editor.appendChild(sec); moved = true; }
+    structureDirty = false;
+  }
+  if(moved){ restoreSelection(sel); noteMutations(wordWatcher.takeRecords()); structureDirty = false; }
+}
+function fixBlocks(sec){
+  let moved = false;
+  for(const n of [...sec.childNodes]){
+    if(n.nodeType === 3){ if(n.textContent.trim()){ const p = document.createElement('p'); sec.insertBefore(p, n); p.appendChild(n); moved = true; } else n.remove(); }
+    else if(n.nodeType === 1 && !/^(P|H2)$/.test(n.tagName)){
+      if(n.tagName === 'BR'){ n.remove(); continue; }
+      const p = document.createElement(/^H[1-6]$/.test(n.tagName) ? 'h2' : 'p'); sec.insertBefore(p, n);
+      while(n.firstChild) p.appendChild(n.firstChild); n.remove(); moved = true;
+    }
+  }
+  sec.querySelectorAll(':scope > * span, :scope > * font, :scope > * b, :scope > * strong, :scope > * u').forEach(sp=>{ while(sp.firstChild) sp.parentNode.insertBefore(sp.firstChild, sp); sp.remove(); moved = true; });
+  sec.querySelectorAll(':scope > [style], :scope > * [style]').forEach(el=>el.removeAttribute('style'));
+  for(const b of sec.children){
+    if(b.tagName === 'H2'){ setClass(b, 'chapter', true); setClass(b, 'scene', false); }
+    else setClass(b, 'scene', SCENE.test(b.textContent));
+  }
+  return moved;
+}
+
+/* ================================================================ undo */
+
+// Galley Proof keeps its own undo history instead of the browser's. The
+// browser's history can't follow paragraphs being moved between chapter
+// sections and gives jumbled results; this one records every change to the
+// manuscript (text and structure) and reverses them exactly, newest first.
+// Typing and deleting are grouped into bursts, like other writing apps.
+const Undo = (() => {
+  const LIMIT = 400;
+  const watch = new MutationObserver(()=>{});   // read on demand with takeRecords()
+  watch.observe(editor, {childList:true, subtree:true, characterData:true, characterDataOldValue:true});
+  let done = [], undone = [];
+  let cur = null;               // the group being recorded
+  let lastKind = '', lastAt = 0, lastSel = null, inCommand = 0, applying = false;
+
+  const sameSel = (a, b) => a && b && a[0]===b[0] && a[1]===b[1] && a[2]===b[2] && a[3]===b[3];
+  function flush(){
+    const recs = watch.takeRecords();
+    if(!recs.length || applying) return;
+    if(!cur){ cur = {records:[], before:lastSel}; }
+    cur.records.push(...recs);
+  }
+  function close(){
+    flush();
+    if(cur && cur.records.length){
+      cur.after = saveSelection();
+      done.push(cur); if(done.length > LIMIT) done.shift();
+      undone = [];
+    }
+    cur = null; lastKind = '';
+  }
+  // Called before each edit the person makes. Same kind of edit, soon after
+  // the last one, with the cursor where that one left it: keep the group.
+  function beforeEdit(kind){
+    flush();
+    const now = Date.now(), sel = saveSelection();
+    const cont = cur && kind === lastKind && (kind === 'type' || kind === 'delete') && now - lastAt < 1500 && sameSel(sel, lastSel);
+    if(!cont){ close(); cur = {records:[], before:sel}; }
+    lastKind = kind; lastAt = now;
+  }
+  function afterEdit(){ flush(); lastSel = saveSelection(); lastAt = Date.now(); }
+  // A command (new chapter, replace all, restore…) is always one undo step.
+  function command(fn){
+    if(inCommand) return fn();
+    close(); cur = {records:[], before:saveSelection()};
+    inCommand++;
+    try{ return fn(); }
+    finally{ inCommand--; normalizeStructure(); close(); lastSel = saveSelection(); }
+  }
+  function revert(records){
+    for(let i = records.length - 1; i >= 0; i--){
+      const r = records[i];
+      if(r.type === 'characterData'){ r.target.data = r.oldValue; continue; }
+      for(const n of r.addedNodes) if(n.parentNode === r.target) r.target.removeChild(n);
+      const ref = r.nextSibling && r.nextSibling.parentNode === r.target ? r.nextSibling : null;
+      for(const n of r.removedNodes) r.target.insertBefore(n, ref);
+    }
+  }
+  function step(from, to, selKey){
+    close();
+    const g = from.pop(); if(!g) return false;
+    applying = true;
+    try{
+      watch.takeRecords();
+      revert(g.records);
+      const back = watch.takeRecords();
+      structureDirty = true; normalizeStructure();
+      back.push(...watch.takeRecords());
+      to.push({records:back, before:g.after, after:g.before});
+    } finally { applying = false; }
+    const sel = g[selKey];
+    if(sel && editor.contains(sel[0]) && editor.contains(sel[2])) restoreSelection(sel);
+    else { const secs = sections(); const b = secs.length && secs[0].firstElementChild; if(b){ editor.focus(); caretTo(b, true); } }
+    lastSel = saveSelection(); lastKind = '';
+    afterChange(true);
+    return true;
+  }
+  return {
+    beforeEdit, afterEdit, command, close,
+    undo: () => step(done, undone, 'before'),
+    redo: () => step(undone, done, 'before'),
+    reset(){ watch.takeRecords(); done = []; undone = []; cur = null; lastKind = ''; lastSel = null; },
+    get canUndo(){ return done.length > 0 || !!(cur && cur.records.length); },
+  };
+})();
+// What happens after any change to the manuscript (typing, undo, commands).
+function afterChange(fromUndo){
+  freeView = false; schedule(); markDirty(); if(typeof Find !== 'undefined') Find.refresh();
+  if(fromUndo) lastSavedWords = editorWords();   // an undo is deliberate: don't offer to put text back
+  else deletionGuard();
+}
 
 /* ================================================================ geometry */
 
@@ -169,10 +433,12 @@ function applyGeometry(){
   book.style.setProperty('--L', L+'px');
   book.style.height = H+'px';
   book.classList.toggle('drops', !!S.drop);
-  Object.assign(editor.style, {
-    left:(FM*W + m)+'px', top:top+'px', width:T+'px', height:(lines*L + .5)+'px',
-    columnWidth:T+'px', columnGap:(2*m)+'px', fontSize:fs+'px', lineHeight:L+'px'
-  });
+  book.style.setProperty('--top', top+'px');
+  book.style.setProperty('--T', T+'px');
+  book.style.setProperty('--gap', (2*m)+'px');
+  book.style.setProperty('--bh', (lines*L + .5)+'px');
+  Object.assign(editor.style, { fontSize:fs+'px', lineHeight:L+'px' });
+  layoutAll = true;
   stage.style.height = H+'px';
   fit();
   sig='';
@@ -198,13 +464,54 @@ const ONES=['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','T
 const TENS=['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
 const numWord = n => n<20 ? ONES[n] : n<100 ? TENS[Math.floor(n/10)] + (n%10 ? '-'+ONES[n%10] : '') : String(n);
 
+// Place each chapter at its first page and measure how many pages it fills.
+// Only chapters that changed are measured again.
+const secPages = new WeakMap();     // pages each chapter fills
+const secPlaced = new WeakMap();    // where it was last put, to skip needless writes
+function placeSection(sec, start, pages){
+  const key = `${start}|${pages}|${G.W}|${G.m}|${G.lines}|${G.L}`;
+  if(secPlaced.get(sec) === key) return;
+  secPlaced.set(sec, key);
+  const x = start*G.W + G.m, w = pages*G.W - 2*G.m + 1;
+  sec.style.transform = `translateX(${x}px)`;
+  sec.style.width = w+'px';
+  sec.style.containIntrinsicSize = `${w}px ${G.lines*G.L}px`;
+}
+// How many pages a chapter fills, measured from its own left edge, so it
+// doesn't matter where it currently sits.
+function measureSection(sec){
+  const last = sec.lastElementChild; if(!last) return 1;
+  const rs = last.getClientRects(); if(!rs.length) return 1;
+  const left = sec.getBoundingClientRect().left;
+  return Math.max(1, Math.floor(((rs[rs.length-1].left - left)/scale + G.m + 2) / G.W) + 1);
+}
+function layoutSections(){
+  noteMutations(wordWatcher.takeRecords());
+  const secs = sections();
+  // read every changed chapter first, then move them all: one layout pass
+  for(const sec of secs){
+    if(layoutAll || dirtySections.has(sec) || !secPages.has(sec)) secPages.set(sec, measureSection(sec));
+  }
+  let page = FM;
+  const out = [];
+  for(const sec of secs){
+    const n = secPages.get(sec);
+    placeSection(sec, page, n);
+    out.push({sec, start:page, pages:n});
+    page += n;
+  }
+  dirtySections.clear(); layoutAll = false;
+  return out;
+}
+
 function relayout(){
-  const hs = [...editor.querySelectorAll('h2.chapter')];
-  hs.forEach((h,i)=>{ const lab='Chapter '+numWord(i+1); if(h.dataset.label!==lab) h.dataset.label=lab; h.classList.toggle('empty', !h.textContent.trim()); });
-  chapters = hs.map(h=>{ const r=h.getClientRects()[0]; return {page:r?pageOfRect(r):FM, title:h.textContent.trim()||'Untitled'}; });
-  plast = FM;
-  const last = editor.lastElementChild;
-  if(last){ const rs = last.getClientRects(); if(rs.length) plast = Math.max(FM, pageOfRect(rs[rs.length-1])); }
+  const hs = [...editor.querySelectorAll(':scope > section > h2.chapter')];
+  hs.forEach((h,i)=>{ const lab='Chapter '+numWord(i+1); if(h.dataset.label!==lab) h.dataset.label=lab; setClass(h, 'empty', !h.textContent.trim()); });
+  const laid = layoutSections();
+  chapters = laid.filter(x=>x.sec.firstElementChild && x.sec.firstElementChild.tagName==='H2')
+                 .map(x=>({page:x.start, title:x.sec.firstElementChild.textContent.trim()||'Untitled', sec:x.sec}));
+  const end = laid.length ? laid[laid.length-1] : null;
+  plast = end ? Math.max(FM, end.start + end.pages - 1) : FM;
   total = plast+1; if(total%2) total++;
   const s = [total, plast, S.title, S.author, S.verso, S.trim, JSON.stringify(S.custom), S.face, S.size, S.leading, chapters.map(c=>c.page+':'+c.title).join('|')].join('§');
   if(s !== sig){ sig = s; drawLayer(); }
@@ -276,7 +583,8 @@ function caretPage(){
   let rect = r.getClientRects()[0];
   if(!rect){
     let n = r.startContainer; if(n.nodeType===3) n = n.parentNode;
-    if(n===editor) n = editor.children[r.startOffset] || editor.lastElementChild;
+    if(n===editor || isSection(n)) n = n.children[r.startOffset] || n.lastElementChild;
+    if(isSection(n)) n = n.firstElementChild;
     rect = n && n.getClientRects()[0];
   }
   return rect ? pageOfRect(rect) : null;
@@ -299,88 +607,159 @@ viewport.addEventListener('touchend', e=>{ if(tx==null) return; const dx=e.chang
 /* ================================================================ editing */
 
 try{ document.execCommand('defaultParagraphSeparator', false, 'p'); }catch(e){}
-const topBlock = n => { while(n && n.parentNode!==editor) n = n.parentNode; return n; };
-
-function normalize(){
-  for(const n of [...editor.childNodes]){
-    if(n.nodeType===3){ if(n.textContent.trim()){ const p=document.createElement('p'); editor.insertBefore(p,n); p.appendChild(n); } else n.remove(); }
-    else if(n.nodeType===1 && !/^(P|H2)$/.test(n.tagName)){
-      if(n.tagName==='BR'){ n.remove(); continue; }
-      const p=document.createElement('p'); editor.insertBefore(p,n); while(n.firstChild) p.appendChild(n.firstChild); n.remove();
-    }
-  }
-  editor.querySelectorAll('span, font, b, strong, u').forEach(sp=>{ while(sp.firstChild) sp.parentNode.insertBefore(sp.firstChild, sp); sp.remove(); });
-  editor.querySelectorAll('[style]').forEach(el=>el.removeAttribute('style'));
-  editor.querySelectorAll('h2:not(.chapter)').forEach(h=>h.classList.add('chapter'));
-  if(!editor.firstElementChild) editor.innerHTML='<p><br></p>';
-}
 function markScenes(scope){
-  (scope ? [scope] : editor.querySelectorAll('p')).forEach(p=>{ if(p && p.tagName==='P') p.classList.toggle('scene', SCENE.test(p.textContent)); });
+  (scope ? [scope] : editor.querySelectorAll(':scope > section > p')).forEach(p=>{ if(p && p.tagName==='P') setClass(p, 'scene', SCENE.test(p.textContent)); });
 }
 let rafPending=false;
 function schedule(){ if(rafPending) return; rafPending=true; requestAnimationFrame(()=>{ rafPending=false; relayout(); followCaret(); }); }
 
-editor.addEventListener('input', ()=>{
-  freeView=false; normalize();
-  const sel=getSelection(); if(sel.rangeCount) markScenes(topBlock(sel.getRangeAt(0).startContainer));
-  schedule(); markDirty(); deletionGuard();
+const editKind = t => /^insert(Text|ReplacementText|CompositionText)$/.test(t) ? 'type'
+                     : /^delete(Content|Word|SoftLine|HardLine)(Backward|Forward)?$/.test(t) ? 'delete'
+                     : t;
+editor.addEventListener('beforeinput', e=>{
+  if(e.inputType === 'historyUndo'){ e.preventDefault(); Undo.undo(); return; }
+  if(e.inputType === 'historyRedo'){ e.preventDefault(); Undo.redo(); return; }
+  Undo.beforeEdit(editKind(e.inputType));
+  if(e.inputType === 'insertText' && smartOn() && e.data && e.data.length === 1 && smartType(e.data)) e.preventDefault();
 });
+
+// The two characters before the cursor, within the current paragraph.
+function charsBefore(){
+  const sel = getSelection(); if(!sel.rangeCount || !sel.isCollapsed) return null;
+  const r = sel.getRangeAt(0), n = r.startContainer;
+  if(n.nodeType === 3 && r.startOffset >= 2) return n.data.slice(r.startOffset - 2, r.startOffset);
+  const b = topBlock(n); if(!b) return null;
+  const rr = document.createRange(); rr.setStart(b, 0); rr.setEnd(n, r.startOffset);
+  return rr.toString().slice(-2);
+}
+// Smart punctuation as you type. Returns true if it handled the key.
+function smartType(ch){
+  if(!`"'-.`.includes(ch)) return false;
+  const before = charsBefore(); if(before === null) return false;
+  const prev = before.slice(-1);
+  const opens = !prev || /[\s(\[{—–‘“]/.test(prev);
+  if(ch === '"'){ cmd('insertText', opens && prev !== '“' ? '“' : (prev === '“' ? '‘' : '”')); return true; }
+  if(ch === "'"){ cmd('insertText', opens ? '‘' : '’'); return true; }
+  if(ch === '-' && prev === '-'){ cmd('delete'); cmd('insertText', '—'); return true; }
+  if(ch === '.' && before === '..'){ cmd('delete'); cmd('delete'); cmd('insertText', '…'); return true; }
+  return false;
+}
+editor.addEventListener('input', ()=>{
+  normalizeStructure();
+  Undo.afterEdit();
+  afterChange();
+});
+// Off-screen chapters aren't drawn, which keeps typing fast in long books.
+// The chapter holding the cursor (both ends of a selection) is always fully
+// drawn: typing into a chapter the browser has skipped puts the text in the
+// wrong place.
+let liveSecs = [];
+function keepCaretChapterLive(){
+  const sel = getSelection(); if(!sel.rangeCount) return false;
+  const r = sel.getRangeAt(0);
+  const want = [sectionOfNode(r.startContainer), sectionOfNode(r.endContainer)].filter(Boolean);
+  if(want.length === liveSecs.length && want.every((x,i)=>x===liveSecs[i])) return false;
+  liveSecs.forEach(x=>{ if(!want.includes(x)) setClass(x, 'live', false); });
+  want.forEach(x=>setClass(x, 'live', true));
+  liveSecs = want;
+  return true;
+}
+function sectionOfNode(n){ const b = topBlock(n); return b ? b.parentNode : (isSection(n) ? n : null); }
 document.addEventListener('selectionchange', ()=>{
   const sel=getSelection(); if(!sel.rangeCount || !editor.contains(sel.anchorNode)) return;
+  keepCaretChapterLive();
   requestAnimationFrame(followCaret);
+});
+editor.addEventListener('beforeinput', ()=>{
+  if(keepCaretChapterLive()) editor.getBoundingClientRect();   // draw it now, before the edit lands
 });
 editor.addEventListener('mousedown', ()=>{ freeView=false; });
 
 function atStart(block, range){ const r=document.createRange(); r.setStart(block,0); r.setEnd(range.startContainer, range.startOffset); return r.toString().length===0; }
 function caretTo(el, end){ const r=document.createRange(); r.selectNodeContents(el); r.collapse(!end); const s=getSelection(); s.removeAllRanges(); s.addRange(r); }
 
+// Structural edits go through the browser's own editing commands so that
+// ⌘Z undoes them like typing.
+const cmd = (name, value) => document.execCommand(name, false, value);
+function newParagraphAfter(){
+  cmd('insertParagraph');
+  const b = topBlock(getSelection().anchorNode);
+  if(b && b.tagName !== 'P') cmd('formatBlock', '<p>');
+  const nb = topBlock(getSelection().anchorNode);
+  if(nb) setClass(nb, 'scene', false);
+}
+
 editor.addEventListener('keydown', e=>{
   const sel=getSelection(); if(!sel.rangeCount) return;
   const range=sel.getRangeAt(0), block=topBlock(range.startContainer);
-  if(e.key==='Enter' && block && block.tagName==='H2'){
-    e.preventDefault(); const p=document.createElement('p'); p.innerHTML='<br>'; block.after(p); caretTo(p); editor.dispatchEvent(new Event('input'));
-  } else if(e.key==='Backspace' && range.collapsed && block && block.tagName==='P' && block.previousElementSibling && block.previousElementSibling.tagName==='H2' && atStart(block, range)){
-    e.preventDefault();
-    if(!block.textContent.trim()){ const h=block.previousElementSibling; block.remove(); caretTo(h,true); editor.dispatchEvent(new Event('input')); }
+  if(e.key==='Enter' && !e.shiftKey && block && block.tagName==='H2'){
+    e.preventDefault(); Undo.command(()=>{ caretTo(block, true); newParagraphAfter(); });
+  } else if(e.key==='Backspace' && range.collapsed && block && block.tagName==='P' && block.previousElementSibling && block.previousElementSibling.tagName==='H2' && atStart(block, range) && block.textContent.trim()){
+    e.preventDefault();   // don't merge the first paragraph into the chapter title
   } else if(e.key==='Tab'){ e.preventDefault(); }
 });
 
 editor.addEventListener('paste', e=>{
   e.preventDefault();
   const t = (e.clipboardData||window.clipboardData).getData('text/plain'); if(!t) return;
-  if(!/\n/.test(t.trim())) document.execCommand('insertText', false, t);
-  else document.execCommand('insertHTML', false, textToHTML(t, true));
+  const text = smartOn() ? smarten(t) : t;
+  Undo.command(()=>{
+    if(!/\n/.test(text.trim())) cmd('insertText', text);
+    else cmd('insertHTML', textToHTML(text, true));
+  });
 });
 editor.addEventListener('drop', e=>{ if(e.dataTransfer && e.dataTransfer.types.includes('Files')) e.preventDefault(); });
 
-function insertAfterCurrent(nodes, focusNode){
-  const sel=getSelection();
-  let block = sel.rangeCount && editor.contains(sel.anchorNode) ? topBlock(sel.getRangeAt(0).startContainer) : editor.lastElementChild;
-  if(!block) block = editor.lastElementChild;
-  const replace = block && block.tagName==='P' && !block.textContent.trim() && !block.classList.contains('scene');
-  let ref = block;
-  nodes.forEach(n=>{ ref.after(n); ref = n; });
-  if(replace) block.remove();
-  editor.focus(); caretTo(focusNode);
-  freeView=false; editor.dispatchEvent(new Event('input'));
+// Put the caret at the end of the paragraph it's in (or the end of the book).
+function caretToBlockEnd(){
+  const s = getSelection();
+  let b = s.rangeCount && editor.contains(s.anchorNode) ? topBlock(s.anchorNode) : null;
+  if(!b){ const secs = sections(); const last = secs[secs.length-1]; b = last && last.lastElementChild; }
+  if(!b) return null;
+  editor.focus(); caretTo(b, true);
+  return b;
 }
+const isBlankPara = b => b.tagName==='P' && !b.textContent.trim() && !b.classList.contains('scene');
 const keep = el => el.addEventListener('mousedown', e=>e.preventDefault());
 ['bItal','bScene','bChap'].forEach(id=>keep($(id)));
-$('bItal').onclick = ()=>{ editor.focus(); document.execCommand('italic'); };
-$('bScene').onclick = ()=>{
-  const s=document.createElement('p'); s.className='scene'; s.textContent='* * *';
-  const p=document.createElement('p'); p.innerHTML='<br>';
-  insertAfterCurrent([s,p], p);
-};
-$('bChap').onclick = ()=>{
-  const h=document.createElement('h2'); h.className='chapter empty'; h.innerHTML='<br>';
-  const p=document.createElement('p'); p.innerHTML='<br>';
-  insertAfterCurrent([h,p], h);
-};
+$('bItal').onclick = ()=>{ editor.focus(); Undo.command(()=>cmd('italic')); };
+$('bScene').onclick = ()=>Undo.command(()=>{
+  const b = caretToBlockEnd(); if(!b) return;
+  freeView = false;
+  if(!isBlankPara(b)) cmd('insertParagraph');
+  cmd('insertText', '* * *');
+  newParagraphAfter();
+});
+$('bChap').onclick = ()=>Undo.command(()=>{
+  const b = caretToBlockEnd(); if(!b) return;
+  freeView = false;
+  if(!isBlankPara(b)) cmd('insertParagraph');
+  cmd('formatBlock', '<h2>');
+});
 
-function loadText(md){
-  editor.innerHTML = textToHTML(md, false) || '<p><br></p>';
-  normalize(); markScenes(); sig=''; relayout();
+function setManuscriptHTML(html){
+  // group the blocks into chapter sections before they go on the page
+  const tpl = document.createElement('template');
+  tpl.innerHTML = html || '<p><br></p>';
+  const frag = document.createDocumentFragment();
+  let cur = null;
+  for(const n of [...tpl.content.childNodes]){
+    if(n.nodeType !== 1) continue;
+    if(!cur || n.tagName === 'H2'){ cur = newSection(); frag.appendChild(cur); }
+    cur.appendChild(n);
+  }
+  editor.replaceChildren(frag);
+  wordWatcher.takeRecords();
+  recountAll = true; structureDirty = true; layoutAll = true;
+  normalizeStructure();
+}
+// Replace the whole manuscript. Within the same book (restore, import,
+// put back) it's one undo step; opening a different book starts a fresh
+// undo history.
+function loadText(md, opts={}){
+  if(opts.fresh){ setManuscriptHTML(textToHTML(md, false)); Undo.reset(); }
+  else Undo.command(()=>setManuscriptHTML(textToHTML(md, false)));
+  sig=''; relayout();
 }
 
 /* ================================================================ saving */
@@ -436,7 +815,7 @@ setInterval(()=>{ if(wroteSinceSnap && Date.now()-lastSnapAt >= SNAPSHOT_EVERY) 
 // If one action wipes out a lot of words, keep a copy and offer to put it back.
 function deletionGuard(){
   if(guardOpen) return;
-  const now = countWords(editor.innerText);
+  const now = editorWords();
   const lost = lastSavedWords - now;
   if(lost < BIG_DELETE) return;
   guardOpen = true;
@@ -465,7 +844,7 @@ async function openBook(path){
   S = {...DEFAULTS, ...parsed};
   bookPath = path;
   applyGeometry();
-  loadText(b.manuscript);
+  loadText(b.manuscript, {fresh:true});
   lastSavedMd = toMarkdown(); lastSavedWords = countWords(lastSavedMd); sessionStartWords = lastSavedWords;
   dirty = false; saveError = null; lastSavedAt = null; guardOpen = false; hideAlert();
   setView(Math.floor(FM/ppv)); freeView = true;
@@ -500,6 +879,54 @@ $('bookList').addEventListener('click', async e=>{
 $('bkNew').onclick = ()=>newBook();
 $('bkReveal').onclick = ()=>Store.reveal(bookPath || '').catch(err=>toast(String(err), true));
 
+/* ================================================================ chapters */
+
+function sectionWords(sec){
+  editorWords();   // bring the per-paragraph counts up to date
+  let n = 0; for(const b of sec.children) n += blockCounts.get(b) || 0;
+  return n;
+}
+function renderChapters(){
+  relayout();
+  const laid = layoutSections();
+  const firstIsChapter = laid.length && laid[0].sec.firstElementChild && laid[0].sec.firstElementChild.tagName === 'H2';
+  const total = editorWords();
+  $('chapSummary').textContent = `${chapters.length} ${chapters.length === 1 ? 'chapter' : 'chapters'} · ${total.toLocaleString()} words · ${plast-2} pages`;
+  let num = 0;
+  $('chapList').innerHTML = laid.map((x, i)=>{
+    const h = x.sec.firstElementChild, isChap = h && h.tagName === 'H2';
+    if(isChap) num++;
+    const title = isChap ? (h.textContent.trim() || 'Untitled') : 'Opening pages';
+    const label = isChap ? `Chapter ${numWord(num)}` : 'Before Chapter One';
+    const canUp = isChap && i > 0 && (i > 1 || firstIsChapter);
+    const canDown = isChap && i < laid.length - 1;
+    return `<li><button class="go" data-go="${i}"><b>${esc(title)}</b><span>${label} · p. ${x.start-2} · ${sectionWords(x.sec).toLocaleString()} words</span></button>`
+      + `<button class="btn mv" data-up="${i}" ${canUp?'':'disabled'} title="Move earlier" aria-label="Move ${esc(title)} earlier">↑</button>`
+      + `<button class="btn mv" data-down="${i}" ${canDown?'':'disabled'} title="Move later" aria-label="Move ${esc(title)} later">↓</button></li>`;
+  }).join('') || '<li class="empty">No chapters yet. Use Format → New Chapter.</li>';
+}
+$('chapList').addEventListener('click', e=>{
+  const go = e.target.closest('[data-go]'), up = e.target.closest('[data-up]'), down = e.target.closest('[data-down]');
+  const secs = sections();
+  if(go){
+    const sec = secs[+go.dataset.go]; if(!sec) return;
+    const h = sec.firstElementChild;
+    const target = (h.tagName === 'H2' && h.nextElementSibling) || h;   // start of the chapter's text
+    editor.focus(); caretTo(target, false); keepCaretChapterLive();
+    freeView = false; followCaret(); closePanels();
+    return;
+  }
+  const i = up ? +up.dataset.up : down ? +down.dataset.down : -1;
+  if(i < 0) return;
+  const sec = secs[i], other = secs[up ? i-1 : i+1]; if(!sec || !other) return;
+  // moving whole chapters is one undo step
+  Undo.command(()=>{ if(up) other.before(sec); else other.after(sec); });
+  afterChange(true);
+  relayout(); renderChapters();
+  const title = sec.firstElementChild.textContent.trim() || 'Untitled';
+  toast(`Moved “${title}” ${up ? 'earlier' : 'later'}. ⌘Z undoes it.`);
+});
+
 /* ================================================================ history */
 
 async function renderHistory(){
@@ -529,14 +956,15 @@ $('snapNow').onclick = async ()=>{ await snapshotNow(true); renderHistory(); };
 
 /* ================================================================ panels */
 
-const PANELS = ['setup','books','history','match'];
+const PANELS = ['setup','books','history','match','chapters'];
 function openPanel(name){
   PANELS.forEach(p=>{ $(p).hidden = p!==name; document.querySelector(`[data-panel="${p}"]`).setAttribute('aria-pressed', String(p===name)); });
   if(name==='setup'){ syncForm(); $('copyBox').hidden=true; }
   if(name==='books') renderBooks();
   if(name==='history') renderHistory();
+  if(name==='chapters') renderChapters();
   if(name==='match'){ if(!$('mFace').dataset.touched) $('mFace').value = S.face; renderTemplates(); solveAndShow(); }
-  if(name==='setup' && Store.desktop) Store.appVersion().then(v=>$('aboutVersion').textContent=`Galley Proof version ${v}`).catch(()=>{});
+  if(name==='setup' && Store.desktop) Store.appVersion().then(v=>$('aboutVersion').textContent=aboutText(v)).catch(()=>{});
 }
 function closePanels(){ PANELS.forEach(p=>{ $(p).hidden=true; document.querySelector(`[data-panel="${p}"]`).setAttribute('aria-pressed','false'); }); }
 document.querySelectorAll('[data-panel]').forEach(b=>b.onclick=()=>{ $(b.dataset.panel).hidden ? openPanel(b.dataset.panel) : closePanels(); });
@@ -568,6 +996,7 @@ function syncForm(){
   $('sTitle').value=S.title; $('sAuthor').value=S.author; $('sTrim').value=S.trim; $('sFace').value=S.face;
   $('sSize').value=String(S.size); $('sLead').value=String(S.leading); $('sDrop').checked=!!S.drop; $('sVerso').value=S.verso;
   $('sStyle').value = allTemplates().some(t=>t.id===S.template) ? S.template : '';
+  $('sSmart').checked = smartOn();
   const e = config.email || {};
   $('eTo').value=e.to||''; $('eUser').value=e.username||''; $('ePass').value=e.password||'';
   $('eHost').value=e.smtp_host||''; $('ePort').value=e.smtp_port||'';
@@ -575,7 +1004,7 @@ function syncForm(){
 function refreshLayout(){
   const firstPage = view*ppv;
   applyGeometry(); relayout(); setView(Math.floor(firstPage/ppv));
-  if(document.fonts) document.fonts.load(`16px ${FACES[S.face].stack}`).then(()=>{ sig=''; relayout(); });
+  if(document.fonts) document.fonts.load(`16px ${FACES[S.face].stack}`).then(()=>{ wplCache.key=''; layoutAll=true; sig=''; relayout(); });
 }
 function onSetting(e){
   S.title=$('sTitle').value; S.author=$('sAuthor').value;
@@ -726,15 +1155,26 @@ $('tplList').addEventListener('click', e=>{
 
 /* ================================================================ updates */
 
+// Checked a few seconds after opening, then every six hours while the app
+// stays open (and when it comes back to the front after a long while).
+const UPDATE_EVERY = 6 * 60 * 60 * 1000;
+let lastUpdateCheck = 0, lastUpdateProblem = '';
+function aboutText(v){
+  return `Galley Proof version ${v}` + (lastUpdateProblem ? `. The last update check didn't work: ${lastUpdateProblem}` : '');
+}
+setInterval(()=>{ if(Date.now() - lastUpdateCheck >= UPDATE_EVERY) checkForUpdates(false); }, 15 * 60 * 1000);
+window.addEventListener('focus', ()=>{ if(lastUpdateCheck && Date.now() - lastUpdateCheck >= UPDATE_EVERY) checkForUpdates(false); });
 async function checkForUpdates(manual){
   if(!Store.desktop) return;
+  lastUpdateCheck = Date.now();
   try{
     const u = await Store.checkUpdate();
+    lastUpdateProblem = '';
     if(u){
       if(!$('alert').hidden && !manual) return;   // don't cover a more important message
       showAlert('update', `Galley Proof ${u.version} is ready to install (you have ${u.current}).`, 'Update and restart', installUpdate, 'Later', null);
     } else if(manual) toast('You have the latest version.');
-  }catch(err){ if(manual) toast(String(err), true); }
+  }catch(err){ lastUpdateProblem = String(err); if(manual) toast(String(err), true); }
 }
 async function installUpdate(){
   await saveNow();
@@ -746,6 +1186,7 @@ async function installUpdate(){
 $('bUpdate').onclick = ()=>checkForUpdates(true);
 
 function saveConfig(){ Store.setConfig(config).catch(()=>{}); }
+$('sSmart').addEventListener('change', ()=>{ config.smart_punct = $('sSmart').checked; saveConfig(); });
 ['eTo','eUser','ePass','eHost','ePort'].forEach(id=>$(id).addEventListener('change', ()=>{
   config.email = { to:$('eTo').value.trim(), from:$('eUser').value.trim(), username:$('eUser').value.trim(), password:$('ePass').value,
     smtp_host:$('eHost').value.trim(), smtp_port:+$('ePort').value || 0 };
@@ -763,8 +1204,9 @@ $('fileIn').onchange = e=>{
   const rd=new FileReader();
   rd.onload = async ()=>{
     await snapshotNow(false);
-    editor.innerHTML = textToHTML(String(rd.result), true) || '<p><br></p>';
-    normalize(); markScenes(); sig=''; relayout(); setView(Math.floor(FM/ppv));
+    const imported = smartOn() ? smarten(String(rd.result)) : String(rd.result);
+    Undo.command(()=>setManuscriptHTML(textToHTML(imported, true)));
+    sig=''; relayout(); setView(Math.floor(FM/ppv));
     lastSavedWords = 0; markDirty(); closePanels();
     toast('Imported. The text it replaced is saved in History.');
   };
@@ -825,12 +1267,142 @@ function toast(text, bad, ms){
   clearTimeout(toastT); toastT=setTimeout(()=>t.hidden=true, ms || (bad?6000:2600));
 }
 
+/* ================================================================ find and replace */
+
+// Matches are found in each paragraph's text. Straight and curly quotes are
+// treated as the same, so searching for don't finds don’t.
+const Find = (() => {
+  let matches = [], index = -1, timer = null;
+  const fold = t => t.replace(/[‘’]/g, "'").replace(/[“”]/g, '"');
+  const escRe = t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const hl = (window.CSS && CSS.highlights && window.Highlight) ? CSS.highlights : null;
+  const isOpen = () => !$('findbar').hidden;
+
+  function pattern(){
+    const q = fold($('fFind').value);
+    if(!q) return null;
+    let src = escRe(q);
+    if($('fWord').checked) src = `(?<![\\p{L}\\p{N}'])${src}(?![\\p{L}\\p{N}'])`;
+    return new RegExp(src, 'gu' + ($('fCase').checked ? '' : 'i'));
+  }
+  function search(){
+    matches = []; index = -1;
+    const re = pattern();
+    if(re){
+      for(const b of allBlocks()){
+        const text = fold(b.textContent);
+        re.lastIndex = 0; let m;
+        while((m = re.exec(text))){ matches.push({b, start:m.index, end:m.index + m[0].length}); if(!m[0].length) re.lastIndex++; if(matches.length >= 10000) break; }
+        if(matches.length >= 10000) break;
+      }
+    }
+    paint(); count();
+  }
+  // Turn a paragraph offset range into a DOM Range.
+  function toRange(m){
+    const r = document.createRange();
+    const w = document.createTreeWalker(m.b, NodeFilter.SHOW_TEXT);
+    let pos = 0, n, startSet = false;
+    while((n = w.nextNode())){
+      const len = n.data.length;
+      if(!startSet && m.start <= pos + len){ r.setStart(n, m.start - pos); startSet = true; }
+      if(startSet && m.end <= pos + len){ r.setEnd(n, m.end - pos); return r; }
+      pos += len;
+    }
+    return startSet ? r : null;
+  }
+  function paint(){
+    if(!hl) return;
+    if(!matches.length || !isOpen()){ hl.delete('gp-find'); hl.delete('gp-find-current'); return; }
+    const rs = matches.slice(0, 2000).map(toRange).filter(Boolean);
+    hl.set('gp-find', new Highlight(...rs));
+    const cur = matches[index] && toRange(matches[index]);
+    if(cur) hl.set('gp-find-current', new Highlight(cur)); else hl.delete('gp-find-current');
+  }
+  function count(){
+    $('fCount').textContent = !$('fFind').value ? '' : !matches.length ? 'Not found' : index < 0 ? `${matches.length.toLocaleString()} found` : `${index+1} of ${matches.length.toLocaleString()}`;
+    $('fOne').disabled = index < 0; $('fAll').disabled = !matches.length;
+  }
+  // Which match comes first after the cursor.
+  function fromCaret(){
+    const sel = getSelection(); if(!sel.rangeCount || !editor.contains(sel.anchorNode)) return 0;
+    const at = sel.getRangeAt(0);
+    for(let i = 0; i < matches.length; i++){
+      const r = toRange(matches[i]); if(r && at.compareBoundaryPoints(Range.START_TO_START, r) <= 0) return i;
+    }
+    return 0;
+  }
+  function go(dir){
+    if(!matches.length){ count(); return; }
+    index = index < 0 ? (dir > 0 ? fromCaret() : (fromCaret() - 1 + matches.length) % matches.length)
+                      : (index + dir + matches.length) % matches.length;
+    const r = toRange(matches[index]); if(!r) return;
+    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    keepCaretChapterLive(); freeView = false; followCaret();
+    paint(); count();
+  }
+  // Replace one match's text in place. The undo history records the change.
+  function replaceAt(m, text){
+    const r = toRange(m); if(!r) return;
+    r.deleteContents();
+    if(text) r.insertNode(document.createTextNode(text));
+    m.b.normalize();
+  }
+  function replaceOne(){
+    if(index < 0 || !matches[index]) return;
+    const keep = index;
+    Undo.command(()=>replaceAt(matches[index], $('fRepl').value));
+    afterChange(true);
+    search(); index = Math.min(keep, matches.length) - 1; go(1);
+  }
+  function replaceAll(){
+    if(!matches.length) return;
+    const n = matches.length, text = $('fRepl').value;
+    Undo.command(()=>{ for(let i = matches.length - 1; i >= 0; i--) replaceAt(matches[i], text); });
+    afterChange(true);
+    search();
+    toast(`Replaced ${n.toLocaleString()} ${n === 1 ? 'match' : 'matches'}. ⌘Z undoes it.`, false, 4000);
+  }
+  function open(replace){
+    $('findbar').hidden = false; closePanels();
+    const sel = getSelection();
+    if(sel.rangeCount && !sel.isCollapsed && editor.contains(sel.anchorNode) && sel.toString().length < 200 && !sel.toString().includes('\n')) $('fFind').value = sel.toString();
+    const f = replace ? $('fRepl') : $('fFind'); f.focus(); f.select();
+    search();
+    requestAnimationFrame(()=>{ fit(); relayout(); });
+  }
+  function close(){
+    $('findbar').hidden = true; paint();
+    if(index >= 0 && matches[index]){ const r = toRange(matches[index]); if(r){ editor.focus(); const s = getSelection(); s.removeAllRanges(); s.addRange(r); } }
+    else editor.focus();
+    requestAnimationFrame(()=>{ fit(); relayout(); });
+  }
+  function useSelection(){
+    const t = getSelection().toString();
+    if(t && !t.includes('\n')){ $('fFind').value = t; if(isOpen()) search(); else open(false); }
+  }
+  // keep results current while the manuscript changes
+  function refresh(){ if(!isOpen()) return; clearTimeout(timer); timer = setTimeout(()=>{ const i = index; search(); if(i >= 0 && matches.length){ index = Math.min(i, matches.length - 1); paint(); count(); } }, 250); }
+
+  $('fFind').addEventListener('input', ()=>{ search(); if(matches.length){ index = -1; go(1); $('fFind').focus(); } });
+  $('fCase').addEventListener('change', search); $('fWord').addEventListener('change', search);
+  $('fNext').onclick = ()=>go(1); $('fPrev').onclick = ()=>go(-1);
+  $('fOne').onclick = replaceOne; $('fAll').onclick = replaceAll; $('fClose').onclick = close;
+  $('fFind').addEventListener('keydown', e=>{ if(e.key === 'Enter'){ e.preventDefault(); go(e.shiftKey ? -1 : 1); $('fFind').focus(); } });
+  $('fRepl').addEventListener('keydown', e=>{ if(e.key === 'Enter'){ e.preventDefault(); replaceOne(); $('fRepl').focus(); } });
+  $('findbar').addEventListener('keydown', e=>{ if(e.key === 'Escape'){ e.preventDefault(); e.stopPropagation(); close(); } });
+  return { open, close, next:()=>{ if(!isOpen()) open(false); else go(1); }, prev:()=>{ if(!isOpen()) open(false); else go(-1); }, useSelection, refresh, get isOpen(){ return isOpen(); } };
+})();
+
 /* ================================================================ actions, menus and keys */
 
 // Every command lives here once. The native menu, the toolbar and the
 // keyboard all call run(); shortcuts that both the menu and the page might
 // see are only carried out once.
+const inField = () => { const a = document.activeElement; return !!a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT'); };
 const ACTIONS = {
+  undo:        ()=>{ if(inField()) document.execCommand('undo'); else Undo.undo(); },
+  redo:        ()=>{ if(inField()) document.execCommand('redo'); else Undo.redo(); },
   new_book:    ()=>newBook(),
   open_book:   ()=>openPanel('books'),
   books:       ()=>openPanel('books'),
@@ -847,7 +1419,7 @@ const ACTIONS = {
   settings:    ()=>openPanel('setup'),
   page_style:  ()=>{ openPanel('setup'); $('sStyle').focus(); },
   match:       ()=>openPanel('match'),
-  italic:      ()=>{ if(caretInEditor()) document.execCommand('italic'); },
+  italic:      ()=>{ if(caretInEditor()) Undo.command(()=>document.execCommand('italic')); },
   chapter:     ()=>$('bChap').click(),
   scene:       ()=>$('bScene').click(),
   prev:        ()=>turn(-1),
@@ -855,6 +1427,18 @@ const ACTIONS = {
   toolbar:     ()=>setToolbar(!config.toolbar_hidden),
   focus:       ()=>setFocus(!document.body.classList.contains('focus')),
   check_updates: ()=>checkForUpdates(true),
+  find:        ()=>Find.open(false),
+  replace:     ()=>Find.open(true),
+  find_next:   ()=>Find.next(),
+  find_prev:   ()=>Find.prev(),
+  find_selection: ()=>Find.useSelection(),
+  chapters:    ()=>openPanel('chapters'),
+  smarten_book: ()=>{
+    const before = toMarkdown(), after = smarten(before);
+    if(before === after){ toast('Quotes and dashes are already typographer’s style.'); return; }
+    loadText(after); markDirty();
+    toast('Converted quotes, apostrophes, dashes and ellipses. ⌘Z undoes it.', false, 5000);
+  },
 };
 const lastRun = {};
 function run(action, source){
@@ -870,10 +1454,12 @@ function caretInEditor(){ const s = getSelection(); return s.rangeCount && edito
 // Keyboard shortcuts, matching the menu. Keys are written as they appear in
 // the menu: mod = ⌘ on a Mac, Ctrl elsewhere.
 const KEYS = {
+  'mod+z':'undo', 'mod+shift+z':'redo', 'mod+y':'redo',
+  'mod+f':'find', 'alt+mod+f':'replace', 'mod+g':'find_next', 'mod+shift+g':'find_prev', 'mod+e':'find_selection',
   'mod+n':'new_book', 'mod+o':'open_book', 'mod+shift+o':'open_folder', 'mod+s':'save',
   'mod+shift+h':'history', 'mod+shift+i':'import', 'mod+shift+e':'email', 'mod+shift+p':'book_setup',
   'mod+,':'settings', 'mod+i':'italic', 'mod+shift+n':'chapter', 'mod+shift+8':'scene', 'mod+shift+*':'scene',
-  'mod+shift+l':'books', 'alt+mod+arrowleft':'prev', 'alt+mod+arrowright':'next', 'alt+mod+t':'toolbar',
+  'mod+shift+l':'books', 'mod+shift+c':'chapters', 'alt+mod+arrowleft':'prev', 'alt+mod+arrowright':'next', 'alt+mod+t':'toolbar',
   'mod+shift+f':'focus'
 };
 function keyName(e){
@@ -889,11 +1475,13 @@ function keyName(e){
 }
 document.addEventListener('keydown', e=>{
   const action = KEYS[keyName(e)];
+  if(action && (action === 'undo' || action === 'redo') && inField()) return;   // text boxes keep their own undo
   if(action){ e.preventDefault(); run(action, 'key'); return; }
+  if(e.key==='Escape' && Find.isOpen && !(e.target.closest && e.target.closest('.panel'))){ e.preventDefault(); Find.close(); return; }
   if(e.target.closest && e.target.closest('.panel')){ if(e.key==='Escape') closePanels(); return; }
   if(e.key==='PageDown'){ e.preventDefault(); turn(1); }
   else if(e.key==='PageUp'){ e.preventDefault(); turn(-1); }
-  else if(e.key==='Escape'){ if(PANELS.some(p=>!$(p).hidden)) closePanels(); else if(document.body.classList.contains('focus')) setFocus(false); }
+  else if(e.key==='Escape'){ if(Find.isOpen) Find.close(); else if(PANELS.some(p=>!$(p).hidden)) closePanels(); else if(document.body.classList.contains('focus')) setFocus(false); }
 });
 Store.onMenu(id=>run(id, 'menu'));
 
@@ -961,17 +1549,26 @@ $('bFocus').onclick = ()=>setFocus(true); $('unfocus').onclick = ()=>setFocus(fa
 /* ================================================================ status */
 
 let measureCtx=null;
+let wplCache = {key:'', value:0};
 function wordsPerLine(){
+  const key = `${G.fs}|${G.T}|${S.face}`;
+  if(wplCache.key === key) return wplCache.value;
+  wplCache = {key, value: measureWordsPerLine()};
+  return wplCache.value;
+}
+function measureWordsPerLine(){
   try{
     measureCtx = measureCtx || document.createElement('canvas').getContext('2d');
     measureCtx.font = `${G.fs}px ${(FACES[S.face]||FACES.garamond).stack}`;
-    const sample = (editor.innerText || '').slice(0, 2000).trim() || 'The quick brown fox jumps over the lazy dog while the barometer falls.';
+    let sample = '';
+    for(const el of allBlocks()){ sample += el.textContent + ' '; if(sample.length > 2000) break; }
+    sample = sample.slice(0, 2000).trim() || 'The quick brown fox jumps over the lazy dog while the barometer falls.';
     const n = sample.split(/\s+/).length; const w = measureCtx.measureText(sample.replace(/\s+/g,' ')).width;
     return n ? G.T / (w/n) : 0;
   }catch(e){ return 0; }
 }
 function status(){
-  const words = countWords(editor.innerText);
+  const words = editorWords();
   const wpl = wordsPerLine(), pages = plast-2;
   const parts = [
     `${words.toLocaleString()} words`,
@@ -1014,14 +1611,14 @@ async function boot(){
       showAlert('save', `Could not open your books folder: ${err}`, 'OK', null);
     }
   }
-  if(document.fonts) document.fonts.ready.then(()=>{ sig=''; relayout(); });
+  if(document.fonts){ document.fonts.ready.then(()=>{ wplCache.key=''; layoutAll=true; sig=''; relayout(); }); document.fonts.addEventListener('loadingdone', ()=>{ wplCache.key=''; layoutAll=true; sig=''; relayout(); }); }
   setTimeout(()=>checkForUpdates(false), 5000);
 }
 
 let rz; window.addEventListener('resize', ()=>{ clearTimeout(rz); rz=setTimeout(()=>{ const firstPage=view*ppv; fit(); sig=''; relayout(); setView(Math.floor(firstPage/ppv)); followCaret(); }, 120); });
 
 // exposed for tests
-window.GalleyProof = { toMarkdown, textToHTML, countWords, saveNow, openBook, get path(){ return bookPath; } };
+window.GalleyProof = { toMarkdown, textToHTML, countWords, saveNow, openBook, loadText, undo: ()=>Undo.undo(), redo: ()=>Undo.redo(), editorWords, get path(){ return bookPath; } };
 
 boot();
 })();
