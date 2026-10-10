@@ -1,0 +1,120 @@
+/* Layout: a writing desk holding one open book; the chrome recedes, the pages are the interface */
+:root{
+  --desk:#c8cbc3; --desk-2:#bfc3ba; --chrome:#e6e8e2; --line:#aeb3a9; --ui-ink:#272b27; --muted:#5b6159;
+  --accent:#6b2a24; --warn:#9a3412; --warn-bg:#fbe7da;
+  --paper:#f7f3ea; --ink:#1e1a16; --ink-soft:#756c61; --binding:#5b2621;
+  --ui:"IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --face:"EB Garamond", Garamond, Georgia, serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){ :root{
+  --desk:#191b1a; --desk-2:#141615; --chrome:#232624; --line:#3a3e3b; --ui-ink:#dfe1db; --muted:#99a096;
+  --accent:#d38a7f; --warn:#fdba74; --warn-bg:#3b2116;
+  --paper:#e9e3d6; --ink:#1e1a16; --ink-soft:#71685d; --binding:#4c1f1b; color-scheme:dark } }
+
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:radial-gradient(ellipse at 50% 40%, var(--desk), var(--desk-2)); color:var(--ui-ink); font:14px/1.4 var(--ui); display:flex; flex-direction:column; overflow:hidden}
+button,select,input,textarea{font:inherit;color:inherit}
+[hidden]{display:none!important}
+
+/* ---------- chrome ---------- */
+header{display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; padding:10px 16px; border-bottom:1px solid var(--line); background:var(--chrome); font-size:13px}
+.mark{display:flex; align-items:baseline; gap:10px; min-width:0; flex:1 1 180px}
+.mark b{font-family:"EB Garamond", Georgia, serif; font-style:italic; font-weight:500; font-size:19px; letter-spacing:.01em; color:var(--accent)}
+.mark span{color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.nav{display:flex; align-items:center; gap:6px}
+#where{min-width:9.5em; text-align:center; font-variant-numeric:tabular-nums; color:var(--muted)}
+.tools{display:flex; flex-wrap:wrap; gap:6px; justify-content:flex-end; align-items:center; flex:1 1 300px}
+.sep{width:1px; height:20px; background:var(--line); margin:0 2px}
+.btn{border:1px solid var(--line); background:transparent; border-radius:6px; padding:5px 10px; cursor:pointer; line-height:1.2}
+.btn:hover{background:color-mix(in srgb, var(--ui-ink) 7%, transparent)}
+.btn:focus-visible, select:focus-visible, input:focus-visible, summary:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
+.btn[aria-pressed="true"]{background:color-mix(in srgb, var(--accent) 16%, transparent); border-color:var(--accent)}
+.btn:disabled{opacity:.35; cursor:default}
+.btn.i{font-family:"EB Garamond",Georgia,serif; font-style:italic; font-size:16px; padding:2px 11px}
+.btn.arrow{padding:3px 9px; font-size:15px}
+.btn.primary{background:var(--accent); border-color:var(--accent); color:var(--chrome)}
+kbd{font:11px var(--ui); border:1px solid var(--line); border-bottom-width:2px; border-radius:4px; padding:0 4px; background:var(--chrome)}
+
+main{flex:1; min-height:0; display:flex; align-items:center; justify-content:center; padding:16px; position:relative}
+#frame{position:relative}
+#book{position:absolute; left:0; top:0; transform-origin:0 0; box-shadow:0 1px 2px rgba(0,0,0,.18), 0 18px 40px -10px rgba(0,0,0,.4)}
+#stage{position:relative; overflow:hidden}
+#layer{position:absolute; left:0; top:0; pointer-events:none}
+
+footer{display:flex; flex-wrap:wrap; gap:4px 18px; justify-content:center; padding:7px 16px 9px; font-size:12px; color:var(--muted); border-top:1px solid var(--line); background:var(--chrome); font-variant-numeric:tabular-nums}
+footer .saved{color:var(--accent)}
+footer .unsaved{color:var(--warn); font-weight:500}
+
+body.focus header, body.focus footer{display:none}
+#unfocus{position:fixed; top:10px; right:12px; z-index:5; opacity:.35; background:var(--chrome)}
+#unfocus:hover{opacity:1}
+
+/* ---------- alert bar and toast ---------- */
+.alert{display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:8px 14px; padding:8px 16px; background:var(--warn-bg); color:var(--ui-ink); border-bottom:1px solid var(--warn); font-size:13px}
+.alert-acts{display:flex; gap:6px}
+#toast{position:fixed; left:50%; bottom:46px; transform:translateX(-50%); z-index:20; background:var(--ui-ink); color:var(--chrome); padding:8px 14px; border-radius:8px; font-size:13px; box-shadow:0 8px 24px -8px rgba(0,0,0,.5); max-width:calc(100vw - 32px)}
+#toast.bad{background:var(--warn-bg); color:var(--ui-ink); border:1px solid var(--warn)}
+
+/* ---------- side panels ---------- */
+.panel{position:absolute; top:8px; right:16px; z-index:10; width:min(360px, calc(100vw - 32px)); max-height:calc(100% - 16px); overflow:auto; background:var(--chrome); border:1px solid var(--line); border-radius:10px; padding:16px; box-shadow:0 14px 40px -12px rgba(0,0,0,.45); font-size:13px; display:grid; gap:14px; align-content:start}
+.panel h3{margin:0; font-family:"EB Garamond",Georgia,serif; font-weight:500; font-size:20px}
+.panel h4{margin:0; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); font-weight:500}
+.panel section{display:grid; gap:10px; border-top:1px solid var(--line); padding-top:12px}
+.panel section:first-of-type{border-top:0; padding-top:0}
+.panel label{display:grid; gap:4px; color:var(--muted)}
+.panel input[type=text], .panel input[type=email], .panel input[type=password], .panel input[type=number], .panel select{border:1px solid var(--line); background:color-mix(in srgb, var(--chrome) 60%, var(--desk)); border-radius:6px; padding:6px 8px; color:var(--ui-ink); width:100%; min-width:0}
+.panel .row{display:grid; grid-template-columns:1fr 1fr; gap:10px}
+.panel .check{display:flex; align-items:center; gap:8px; color:var(--ui-ink)}
+.panel .spec{font-size:12px; color:var(--muted); line-height:1.5}
+.panel .acts{display:flex; flex-wrap:wrap; gap:6px}
+.panel details summary{cursor:pointer; color:var(--muted)}
+.panel details[open] summary{margin-bottom:8px}
+#copyBox{width:100%; height:120px; font-size:12px; border:1px solid var(--line); border-radius:6px; background:transparent; padding:6px}
+.hint{font-size:12px; color:var(--muted); line-height:1.5; margin:0}
+.list{list-style:none; margin:0; padding:0; display:grid; gap:2px; max-height:46vh; overflow:auto}
+.list li{display:flex; align-items:center; gap:10px; padding:7px 8px; border-radius:6px}
+.list li:hover{background:color-mix(in srgb, var(--ui-ink) 5%, transparent)}
+.list li.current{background:color-mix(in srgb, var(--accent) 12%, transparent)}
+.list .meta{flex:1; min-width:0; display:grid}
+.list .meta b{font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.list .meta span{font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums}
+.list .empty{color:var(--muted); font-size:12px}
+body:not(.desktop) .desktop-only{display:none!important}
+
+/* ---------- the paper ---------- */
+.pg{position:absolute; top:0; background:var(--paper); overflow:hidden}
+.pg.verso{background:linear-gradient(to left, rgba(60,40,20,.13), rgba(60,40,20,0) 7%), linear-gradient(to right, rgba(60,40,20,.04), rgba(60,40,20,0) 3%), var(--paper)}
+.pg.recto{background:linear-gradient(to right, rgba(60,40,20,.15), rgba(60,40,20,0) 7%), linear-gradient(to left, rgba(60,40,20,.04), rgba(60,40,20,0) 3%), var(--paper)}
+.pg.endpaper{background:
+  repeating-linear-gradient(45deg, rgba(255,255,255,.05) 0 2px, transparent 2px 7px),
+  repeating-linear-gradient(-45deg, rgba(0,0,0,.08) 0 2px, transparent 2px 9px),
+  linear-gradient(to left, rgba(0,0,0,.3), rgba(0,0,0,0) 8%), var(--binding)}
+.rh{position:absolute; left:0; right:0; text-align:center; font-family:var(--face); color:var(--ink-soft); font-variant-caps:all-small-caps; letter-spacing:.16em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:0 15%}
+.fo{position:absolute; left:0; right:0; text-align:center; font-family:var(--face); color:var(--ink-soft); font-variant-numeric:oldstyle-nums}
+.tp{position:absolute; left:12%; right:12%; text-align:center; font-family:var(--face); color:var(--ink)}
+.tp .t{line-height:1.12; letter-spacing:.02em; text-wrap:balance}
+.tp .rule{width:22%; height:1px; background:var(--ink); opacity:.5; margin:1.1em auto}
+.tp .a{font-variant-caps:all-small-caps; letter-spacing:.22em}
+.cp{position:absolute; font-family:var(--face); color:var(--ink); line-height:1.45}
+.cp p{margin:0 0 .7em}
+
+/* ---------- the typeset text ---------- */
+#editor{position:absolute; outline:none; color:var(--ink); font-family:var(--face);
+  column-fill:auto; text-align:justify; hyphens:auto; -webkit-hyphens:auto; hyphenate-limit-chars:6 3 2;
+  font-kerning:normal; font-variant-ligatures:common-ligatures; text-rendering:optimizeLegibility;
+  orphans:1; widows:1; caret-color:#6b2a24; overflow:visible}
+#editor ::selection{background:rgba(107,42,36,.2)}
+#editor p{margin:0; text-indent:1.4em}
+#editor > p:first-child, #editor h2.chapter + p, #editor p.scene + p{text-indent:0}
+#editor h2.chapter{break-before:column; break-after:avoid; margin:0; padding-top:calc(var(--L) * 5); margin-bottom:var(--L);
+  font-weight:400; font-size:calc(var(--fs) * 1.6); line-height:calc(var(--L) * 2); text-align:center; hyphens:manual; text-wrap:balance; letter-spacing:.01em}
+#editor > h2.chapter:first-child{break-before:auto}
+#editor h2.chapter::before{content:attr(data-label); display:block; font-size:calc(var(--fs) * .82); line-height:var(--L); margin-bottom:var(--L);
+  font-variant-caps:all-small-caps; letter-spacing:.22em; color:var(--ink-soft)}
+#editor h2.chapter.empty::after{content:"Chapter title"; opacity:.3; font-style:italic}
+#editor h2.chapter + p::first-line{font-variant-caps:small-caps; letter-spacing:.03em}
+#book.drops #editor h2.chapter + p::first-letter{-webkit-initial-letter:3; initial-letter:3; margin-right:.09em; color:var(--ink)}
+#editor p.scene{text-indent:0; text-align:center; letter-spacing:.6em; color:var(--ink-soft)}
+#editor i, #editor em{font-style:italic}

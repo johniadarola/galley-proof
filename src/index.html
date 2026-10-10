@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Galley Proof</title>
+<link rel="stylesheet" href="fonts.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <div class="mark"><b>Galley Proof</b><span id="bookName"></span></div>
+  <div class="nav">
+    <button class="btn arrow" id="prev" aria-label="Previous pages" title="Previous pages (Page Up)">‹</button>
+    <span id="where" aria-live="polite"></span>
+    <button class="btn arrow" id="next" aria-label="Next pages" title="Next pages (Page Down)">›</button>
+  </div>
+  <div class="tools">
+    <button class="btn i" id="bItal" title="Italic (Ctrl/⌘ I)">I</button>
+    <button class="btn" id="bScene" title="Insert a scene break">Scene break</button>
+    <button class="btn" id="bChap" title="Start a new chapter on a fresh page">New chapter</button>
+    <span class="sep" aria-hidden="true"></span>
+    <button class="btn" id="bBooks" aria-pressed="false" data-panel="books">Books</button>
+    <button class="btn" id="bHistory" aria-pressed="false" data-panel="history" title="Saved versions of this book">History</button>
+    <button class="btn" id="bSetup" aria-pressed="false" data-panel="setup">Book setup</button>
+    <button class="btn" id="bFocus" title="Hide everything but the book (Esc to return)">Focus</button>
+  </div>
+</header>
+
+<div id="alert" class="alert" hidden role="alert">
+  <span id="alertText"></span>
+  <span class="alert-acts">
+    <button class="btn" id="alertYes"></button>
+    <button class="btn" id="alertNo"></button>
+  </span>
+</div>
+
+<main id="viewport">
+  <div id="frame"><div id="book"><div id="stage">
+    <div id="layer"></div>
+    <div id="editor" contenteditable="true" spellcheck="true" lang="en" aria-label="Manuscript"></div>
+  </div></div></div>
+
+  <!-- Book setup -->
+  <aside id="setup" class="panel" hidden aria-label="Book setup">
+    <h3>Book setup</h3>
+    <section>
+      <label>Title<input type="text" id="sTitle"></label>
+      <label>Author<input type="text" id="sAuthor"></label>
+    </section>
+    <section>
+      <h4>Page</h4>
+      <label>Trim size<select id="sTrim"></select></label>
+      <label>Typeface<select id="sFace"></select></label>
+      <div class="row">
+        <label>Type size<select id="sSize"></select></label>
+        <label>Leading<select id="sLead"></select></label>
+      </div>
+      <label>Left-hand running head<select id="sVerso"><option value="title">Book title</option><option value="author">Author name</option></select></label>
+      <label class="check"><input type="checkbox" id="sDrop"> Drop caps on chapter openings</label>
+      <div class="spec" id="spec"></div>
+    </section>
+    <section class="desktop-only">
+      <h4>Email backup</h4>
+      <p class="hint">Press <kbd>Ctrl</kbd>/<kbd>⌘</kbd> <kbd>Shift</kbd> <kbd>E</kbd> to email the whole manuscript to yourself.</p>
+      <label>Send to<input type="email" id="eTo" placeholder="you@example.com" autocomplete="off"></label>
+      <label>Send from (Gmail address)<input type="email" id="eUser" placeholder="you@gmail.com" autocomplete="off"></label>
+      <label>App password<input type="password" id="ePass" placeholder="16-letter app password" autocomplete="off"></label>
+      <details>
+        <summary>Mail server</summary>
+        <div class="row">
+          <label>Server<input type="text" id="eHost" placeholder="smtp.gmail.com"></label>
+          <label>Port<input type="number" id="ePort" placeholder="465"></label>
+        </div>
+      </details>
+      <p class="hint">For Gmail, make an app password at myaccount.google.com/apppasswords (two-step verification must be on). It's stored only on this computer.</p>
+      <div class="acts"><button class="btn" id="eSend">Send now</button></div>
+    </section>
+    <section>
+      <h4>Manuscript</h4>
+      <p class="hint">Type <b>* * *</b> on its own line for a scene break. In pasted or imported text, blank lines separate paragraphs, a line starting with <b>#</b> starts a chapter, and <b>*words*</b> become italic.</p>
+      <div class="acts">
+        <button class="btn" id="aCopy">Copy manuscript</button>
+        <button class="btn" id="aImport">Import text file</button>
+        <input type="file" id="fileIn" accept=".txt,.md,.markdown,text/plain" hidden>
+      </div>
+      <textarea id="copyBox" hidden readonly aria-label="Manuscript text"></textarea>
+    </section>
+    <button class="btn" data-close>Done</button>
+  </aside>
+
+  <!-- Books -->
+  <aside id="books" class="panel" hidden aria-label="Books">
+    <h3>Books</h3>
+    <p class="hint" id="booksWhere"></p>
+    <ul class="list" id="bookList"></ul>
+    <div class="acts">
+      <button class="btn" id="bkNew">New book</button>
+      <button class="btn desktop-only" id="bkReveal">Show folder</button>
+    </div>
+    <button class="btn" data-close>Done</button>
+  </aside>
+
+  <!-- History -->
+  <aside id="history" class="panel" hidden aria-label="History">
+    <h3>History</h3>
+    <p class="hint">A copy is saved every 10 minutes while you write, when you open or close a book, and when you press <kbd>Ctrl</kbd>/<kbd>⌘</kbd> <kbd>S</kbd>. Restoring saves the current text first, so nothing is lost.</p>
+    <ul class="list" id="snapList"></ul>
+    <div class="acts"><button class="btn" id="snapNow">Save a copy now</button></div>
+    <button class="btn" data-close>Done</button>
+  </aside>
+</main>
+
+<footer id="status"></footer>
+<div id="toast" role="status" aria-live="polite" hidden></div>
+<button class="btn" id="unfocus" hidden>Leave focus</button>
+
+<script src="store.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
