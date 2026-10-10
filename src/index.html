@@ -51,6 +51,8 @@
     </section>
     <section>
       <h4>Page</h4>
+      <label>Page style<select id="sStyle"></select></label>
+      <button class="btn" id="bMatch" data-panel="match">Match a book on my shelf…</button>
       <label>Trim size<select id="sTrim"></select></label>
       <label>Typeface<select id="sFace"></select></label>
       <div class="row">
@@ -77,6 +79,11 @@
       <p class="hint">For Gmail, make an app password at myaccount.google.com/apppasswords (two-step verification must be on). It's stored only on this computer.</p>
       <div class="acts"><button class="btn" id="eSend">Send now</button></div>
     </section>
+    <section class="desktop-only">
+      <h4>About</h4>
+      <p class="hint" id="aboutVersion"></p>
+      <div class="acts"><button class="btn" id="bUpdate">Check for updates</button></div>
+    </section>
     <section>
       <h4>Manuscript</h4>
       <p class="hint">Type <b>* * *</b> on its own line for a scene break. In pasted or imported text, blank lines separate paragraphs, a line starting with <b>#</b> starts a chapter, and <b>*words*</b> become italic.</p>
@@ -99,6 +106,49 @@
       <button class="btn" id="bkNew">New book</button>
       <button class="btn desktop-only" id="bkReveal">Show folder</button>
     </div>
+    <button class="btn" data-close>Done</button>
+  </aside>
+
+  <!-- Match a book -->
+  <aside id="match" class="panel" hidden aria-label="Match a book">
+    <h3>Match a book</h3>
+    <p class="hint">Pick a novel whose pages you like. Measure it with a ruler and count, and Galley Proof works out the type size, leading and margins that give the same look and words per page.</p>
+    <section>
+      <label>Name<input type="text" id="mName" placeholder="e.g. Hunger Games, Scholastic paperback"></label>
+      <label class="check"><input type="checkbox" id="mMetric"> Measure in millimetres</label>
+    </section>
+    <section>
+      <h4>1 · The page</h4>
+      <div class="row">
+        <label><span>Width (<span class="unit">in</span>)</span><input type="number" step="0.01" id="mW" placeholder="5.5"></label>
+        <label><span>Height (<span class="unit">in</span>)</span><input type="number" step="0.01" id="mH" placeholder="8.25"></label>
+      </div>
+      <label>Lines on a full page<input type="number" step="1" id="mLines" placeholder="Count every line on a page with no chapter break"></label>
+    </section>
+    <section>
+      <h4>2 · The type</h4>
+      <label>Type two or three full lines exactly as printed, one per row<textarea id="mLine" rows="3" placeholder="Lines from the middle of a paragraph"></textarea></label>
+      <p class="hint">Skip the first and last line of a paragraph, lines beside a big first letter, and any line ending in a hyphen. This is the most accurate way to match the type size. If you'd rather count, fill in the next box instead.</p>
+      <label>…or words on 5 full lines<input type="number" step="1" id="mWords" placeholder="e.g. 54"></label>
+      <label>Typeface<select id="mFace"></select></label>
+      <p class="hint">The book's typeface is often named on the copyright page or the last page ("Set in Sabon"). Pick the closest one here.</p>
+    </section>
+    <details>
+      <summary>Optional: measure the text block for exact margins</summary>
+      <div class="row">
+        <label><span>Text width (<span class="unit">in</span>)</span><input type="number" step="0.01" id="mTW" placeholder="Edge to edge of a full line"></label>
+        <label><span>Text height (<span class="unit">in</span>)</span><input type="number" step="0.01" id="mTH" placeholder="Top of first line to bottom of last"></label>
+      </div>
+    </details>
+    <div class="result" id="mResult" aria-live="polite"></div>
+    <div class="acts">
+      <button class="btn primary" id="mSave" disabled>Save and use for this book</button>
+      <button class="btn" id="mClear">Clear</button>
+    </div>
+    <section>
+      <h4>Your templates</h4>
+      <ul class="list" id="tplList"></ul>
+    </section>
     <button class="btn" data-close>Done</button>
   </aside>
 

@@ -64,14 +64,20 @@ body.focus header, body.focus footer{display:none}
 .panel section{display:grid; gap:10px; border-top:1px solid var(--line); padding-top:12px}
 .panel section:first-of-type{border-top:0; padding-top:0}
 .panel label{display:grid; gap:4px; color:var(--muted)}
-.panel input[type=text], .panel input[type=email], .panel input[type=password], .panel input[type=number], .panel select{border:1px solid var(--line); background:color-mix(in srgb, var(--chrome) 60%, var(--desk)); border-radius:6px; padding:6px 8px; color:var(--ui-ink); width:100%; min-width:0}
+.panel textarea, .panel input[type=text], .panel input[type=email], .panel input[type=password], .panel input[type=number], .panel select{border:1px solid var(--line); background:color-mix(in srgb, var(--chrome) 60%, var(--desk)); border-radius:6px; padding:6px 8px; color:var(--ui-ink); width:100%; min-width:0}
 .panel .row{display:grid; grid-template-columns:1fr 1fr; gap:10px}
 .panel .check{display:flex; align-items:center; gap:8px; color:var(--ui-ink)}
 .panel .spec{font-size:12px; color:var(--muted); line-height:1.5}
 .panel .acts{display:flex; flex-wrap:wrap; gap:6px}
 .panel details summary{cursor:pointer; color:var(--muted)}
 .panel details[open] summary{margin-bottom:8px}
+#mLine{resize:vertical; font:13px/1.5 var(--ui); white-space:pre; overflow-x:auto}
 #copyBox{width:100%; height:120px; font-size:12px; border:1px solid var(--line); border-radius:6px; background:transparent; padding:6px}
+.result{font-size:13px; line-height:1.55; padding:10px 12px; border-radius:8px; background:color-mix(in srgb, var(--accent) 9%, transparent); font-variant-numeric:tabular-nums}
+.result:empty{display:none}
+.result b{font-weight:500}
+.result .warn{color:var(--warn)}
+.unit{font-size:11px}
 .hint{font-size:12px; color:var(--muted); line-height:1.5; margin:0}
 .list{list-style:none; margin:0; padding:0; display:grid; gap:2px; max-height:46vh; overflow:auto}
 .list li{display:flex; align-items:center; gap:10px; padding:7px 8px; border-radius:6px}

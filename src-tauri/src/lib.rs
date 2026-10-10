@@ -17,7 +17,8 @@ use std::collections::HashSet;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use tauri::{AppHandle, Manager};
+use std::sync::Mutex;
+use tauri::{AppHandle, Manager, State};
 
 const MANUSCRIPT: &str = "manuscript.md";
 const BOOK: &str = "book.json";
@@ -75,6 +76,12 @@ struct AppConfig {
     /// The book that was open last time.
     last_book: Option<String>,
     email: EmailSettings,
+    /// Page templates the writer has measured from real books.
+    templates: Vec<serde_json::Value>,
+    /// Anything a newer version wrote that this version doesn't know about,
+    /// kept so that going back a version never loses settings.
+    #[serde(flatten)]
+    extra: serde_json::Map<String, serde_json::Value>,
 }
 
 fn config_path(app: &AppHandle) -> Res<PathBuf> {
@@ -391,12 +398,62 @@ fn send_email_blocking(
     Ok(())
 }
 
+// ----------------------------------------------------------------- updates
+
+/// An update found by `check_update`, waiting for the writer to accept it.
+struct PendingUpdate(Mutex<Option<tauri_plugin_updater::Update>>);
+
+#[derive(Serialize)]
+struct UpdateInfo {
+    version: String,
+    current: String,
+    notes: String,
+}
+
+#[tauri::command]
+async fn check_update(app: AppHandle, pending: State<'_, PendingUpdate>) -> Res<Option<UpdateInfo>> {
+    use tauri_plugin_updater::UpdaterExt;
+    let update = app
+        .updater()
+        .map_err(err("Updates aren't set up"))?
+        .check()
+        .await
+        .map_err(err("Could not check for updates"))?;
+    Ok(update.map(|u| {
+        let info = UpdateInfo {
+            version: u.version.clone(),
+            current: u.current_version.clone(),
+            notes: u.body.clone().unwrap_or_default(),
+        };
+        *pending.0.lock().unwrap() = Some(u);
+        info
+    }))
+}
+
+/// Download, install and restart. The page saves the book before calling this.
+#[tauri::command]
+async fn install_update(app: AppHandle, pending: State<'_, PendingUpdate>) -> Res<()> {
+    let update = pending.0.lock().unwrap().take().ok_or("No update is waiting.")?;
+    update
+        .download_and_install(|_, _| {}, || {})
+        .await
+        .map_err(err("The update didn't install"))?;
+    app.restart();
+}
+
+#[tauri::command]
+fn app_version(app: AppHandle) -> String {
+    app.package_info().version.to_string()
+}
+
 // --------------------------------------------------------------------- run
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(PendingUpdate(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             get_config,
             set_config,
@@ -409,7 +466,10 @@ pub fn run() {
             take_snapshot,
             list_snapshots,
             read_snapshot,
-            send_email
+            send_email,
+            check_update,
+            install_update,
+            app_version
         ])
         .run(tauri::generate_context!())
         .expect("error while running Galley Proof");

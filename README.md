@@ -28,6 +28,24 @@ Installing, updating or removing the app never touches these folders. Keeping th
 - **Big-deletion guard:** if one action removes 300 or more words, a bar offers to put them back.
 - **Email to yourself:** <kbd>Ctrl</kbd>/<kbd>⌘</kbd> <kbd>Shift</kbd> <kbd>E</kbd> sends the whole manuscript as an attachment. Set it up in **Book setup → Email backup**. For Gmail, use an [app password](https://myaccount.google.com/apppasswords) (two-step verification must be on). The password is stored only on your computer, in the app's settings file.
 
+## Page templates
+
+**Book setup → Page style** offers typical shapes (mass-market paperback, trade paperback, hardcover) and any books you've matched.
+
+**Match a book on my shelf** turns a real novel into a template:
+
+1. Measure the page width and height with a ruler.
+2. Count the lines on a full page (one with no chapter heading or break).
+3. Type two or three full lines exactly as printed, from the middle of paragraphs, or count the words on five lines.
+4. Pick the closest typeface. Books often name theirs on the copyright page ("Set in Sabon").
+5. Optionally measure the text block's width and height for exact margins.
+
+Galley Proof works out the type size, leading and margins that reproduce that page and its words per page. Templates are kept in the app's settings and can be used for any book.
+
+## Updates
+
+Galley Proof checks for a new version a few seconds after it opens. When one is ready, a bar offers **Update and restart**; your book is saved and a copy put in History first. You can also check from **Book setup → About**. Versions before 0.2.0 can't update themselves, so install 0.2.0 by hand once.
+
 ## Keyboard
 
 | Keys | Action |

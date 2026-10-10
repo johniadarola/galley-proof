@@ -24,6 +24,9 @@ window.Store = (() => {
       sendEmail: (settings, subject, body, attachmentName, attachment) =>
         inv('send_email', { settings, subject, body, attachmentName, attachment }),
       onClose: fn => T.window.getCurrentWindow().onCloseRequested(fn),
+      checkUpdate: () => inv('check_update'),
+      installUpdate: () => inv('install_update'),
+      appVersion: () => inv('app_version'),
     };
   }
 
@@ -71,5 +74,8 @@ window.Store = (() => {
     readSnapshot: async (path, file) => ((read()[path] || {}).snaps || []).find(s => s.file === file)?.text ?? '',
     sendEmail: async () => { throw 'Email works in the desktop app.'; },
     onClose: () => {},
+    checkUpdate: async () => null,
+    installUpdate: async () => {},
+    appVersion: async () => 'browser preview',
   };
 })();

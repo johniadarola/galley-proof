@@ -27,7 +27,21 @@ const FACES = {
 };
 const SIZES = [9.5,10,10.5,11,11.5,12,12.5,13];
 const LEADS = [12,12.5,13,13.5,14,14.5,15,15.5,16,16.5,17];
-const DEFAULTS = {title:'Untitled', author:'', trim:'55', face:'garamond', size:11.5, leading:14.5, drop:true, verso:'title'};
+const DEFAULTS = {title:'Untitled', author:'', trim:'55', custom:null, template:'', face:'garamond', size:11.5, leading:14.5, drop:true, verso:'title'};
+
+// Built-in starting points: typical values for each kind of book, not
+// measurements of any particular title. Templates the writer measures with
+// "Match a book" are kept in the app settings (config.templates).
+const BUILTIN_TEMPLATES = [
+  {id:'b-mm',     name:'Mass-market paperback', trim:{w:4.25, h:6.87, side:.5,  top:.55, bottom:.62}, face:'garamond', size:10,   leading:12},
+  {id:'b-digest', name:'Digest paperback',      trim:{w:5,    h:8,    side:.7,  top:.72, bottom:.82}, face:'garamond', size:11,   leading:13.5},
+  {id:'b-trade',  name:'Trade paperback',       trim:{w:5.5,  h:8.5,  side:.75, top:.78, bottom:.86}, face:'garamond', size:11.5, leading:14.5},
+  {id:'b-hard',   name:'Hardcover novel',       trim:{w:6,    h:9,    side:.82, top:.82, bottom:.92}, face:'caslon',   size:11.5, leading:15}
+];
+function trimOf(){
+  if(S.trim==='custom' && S.custom && S.custom.w) return {...S.custom, label:`${S.custom.w} × ${S.custom.h} in`};
+  return TRIMS[S.trim] || TRIMS['55'];
+}
 
 const SNAPSHOT_EVERY = 10 * 60 * 1000;   // a timed copy every 10 minutes of writing
 const SAVE_PAUSE = 1200;                 // save this long after typing stops
@@ -144,7 +158,7 @@ const countWords = md => (md.replace(/^\s*\* \* \*\s*$/gm,'').match(/[\p{L}\p{N}
 /* ================================================================ geometry */
 
 function applyGeometry(){
-  const t = TRIMS[S.trim] || TRIMS['55'];
+  const t = trimOf();
   const W = t.w*96, H = t.h*96, m = t.side*96, top = t.top*96, botMin = t.bottom*96;
   const fs = S.size*4/3, L = S.leading*4/3;
   const lines = Math.floor((H - top - botMin)/L);
@@ -192,7 +206,7 @@ function relayout(){
   const last = editor.lastElementChild;
   if(last){ const rs = last.getClientRects(); if(rs.length) plast = Math.max(FM, pageOfRect(rs[rs.length-1])); }
   total = plast+1; if(total%2) total++;
-  const s = [total, plast, S.title, S.author, S.verso, S.trim, S.face, S.size, S.leading, chapters.map(c=>c.page+':'+c.title).join('|')].join('§');
+  const s = [total, plast, S.title, S.author, S.verso, S.trim, JSON.stringify(S.custom), S.face, S.size, S.leading, chapters.map(c=>c.page+':'+c.title).join('|')].join('§');
   if(s !== sig){ sig = s; drawLayer(); }
   setView(view);
   status();
@@ -202,7 +216,7 @@ function chapterAt(p){ let c=null; for(const ch of chapters){ if(ch.page<=p) c=c
 
 function drawLayer(){
   const {W,H,top,fs,L,bottom} = G;
-  const face = FACES[S.face]||FACES.garamond, trim = TRIMS[S.trim]||TRIMS['55'];
+  const face = FACES[S.face]||FACES.garamond, trim = trimOf();
   const openers = new Set(chapters.map(c=>c.page));
   const rhTop = top*0.42, rhSize = fs*0.9, foTop = H - bottom*0.62;
   const year = new Date().getFullYear();
@@ -523,12 +537,14 @@ $('snapNow').onclick = async ()=>{ await snapshotNow(true); renderHistory(); };
 
 /* ================================================================ panels */
 
-const PANELS = ['setup','books','history'];
+const PANELS = ['setup','books','history','match'];
 function openPanel(name){
   PANELS.forEach(p=>{ $(p).hidden = p!==name; document.querySelector(`[data-panel="${p}"]`).setAttribute('aria-pressed', String(p===name)); });
   if(name==='setup'){ syncForm(); $('copyBox').hidden=true; }
   if(name==='books') renderBooks();
   if(name==='history') renderHistory();
+  if(name==='match'){ if(!$('mFace').dataset.touched) $('mFace').value = S.face; renderTemplates(); solveAndShow(); }
+  if(name==='setup' && Store.desktop) Store.appVersion().then(v=>$('aboutVersion').textContent=`Galley Proof version ${v}`).catch(()=>{});
 }
 function closePanels(){ PANELS.forEach(p=>{ $(p).hidden=true; document.querySelector(`[data-panel="${p}"]`).setAttribute('aria-pressed','false'); }); }
 document.querySelectorAll('[data-panel]').forEach(b=>b.onclick=()=>{ $(b.dataset.panel).hidden ? openPanel(b.dataset.panel) : closePanels(); });
@@ -536,30 +552,198 @@ document.querySelectorAll('[data-close]').forEach(b=>b.onclick=closePanels);
 
 /* ================================================================ setup */
 
-const fill = (sel, items) => sel.innerHTML = items.map(([v,l])=>`<option value="${v}">${l}</option>`).join('');
-fill($('sTrim'), Object.entries(TRIMS).map(([k,t])=>[k,t.label]));
+const fill = (sel, items) => sel.innerHTML = items.map(([v,l])=>`<option value="${esc(v)}">${esc(l)}</option>`).join('');
 fill($('sFace'), Object.entries(FACES).map(([k,f])=>[k,f.name]));
-fill($('sSize'), SIZES.map(s=>[s, s+' pt']));
-fill($('sLead'), LEADS.map(s=>[s, s+' pt']));
+fill($('mFace'), Object.entries(FACES).map(([k,f])=>[k,f.name]));
+function ensureOption(sel, value, label){
+  if(![...sel.options].some(o=>o.value===String(value))){ const o=document.createElement('option'); o.value=value; o.textContent=label; sel.appendChild(o); }
+}
+const allTemplates = () => [...BUILTIN_TEMPLATES, ...(config.templates||[])];
+function fillPageControls(){
+  const trims = Object.entries(TRIMS).map(([k,t])=>[k,t.label]);
+  if(S.trim==='custom' && S.custom) trims.push(['custom', `Custom · ${S.custom.w} × ${S.custom.h} in`]);
+  fill($('sTrim'), trims);
+  fill($('sSize'), SIZES.map(v=>[v, v+' pt'])); ensureOption($('sSize'), S.size, S.size+' pt');
+  fill($('sLead'), LEADS.map(v=>[v, v+' pt'])); ensureOption($('sLead'), S.leading, S.leading+' pt');
+  const opt = t => `<option value="${esc(t.id)}">${esc(t.name)}</option>`;
+  const mine = config.templates || [];
+  $('sStyle').innerHTML = '<option value="">Custom settings</option>'
+    + `<optgroup label="Typical books">${BUILTIN_TEMPLATES.map(opt).join('')}</optgroup>`
+    + (mine.length ? `<optgroup label="Matched from your shelf">${mine.map(opt).join('')}</optgroup>` : '');
+}
 function syncForm(){
+  fillPageControls();
   $('sTitle').value=S.title; $('sAuthor').value=S.author; $('sTrim').value=S.trim; $('sFace').value=S.face;
-  $('sSize').value=S.size; $('sLead').value=S.leading; $('sDrop').checked=!!S.drop; $('sVerso').value=S.verso;
+  $('sSize').value=String(S.size); $('sLead').value=String(S.leading); $('sDrop').checked=!!S.drop; $('sVerso').value=S.verso;
+  $('sStyle').value = allTemplates().some(t=>t.id===S.template) ? S.template : '';
   const e = config.email || {};
   $('eTo').value=e.to||''; $('eUser').value=e.username||''; $('ePass').value=e.password||'';
   $('eHost').value=e.smtp_host||''; $('ePort').value=e.smtp_port||'';
 }
-function onSetting(){
-  S.title=$('sTitle').value; S.author=$('sAuthor').value; S.trim=$('sTrim').value; S.face=$('sFace').value;
-  S.size=+$('sSize').value; S.leading=Math.max(+$('sLead').value, +$('sSize').value); S.drop=$('sDrop').checked; S.verso=$('sVerso').value;
-  $('sLead').value = S.leading;
+function refreshLayout(){
   const firstPage = view*ppv;
   applyGeometry(); relayout(); setView(Math.floor(firstPage/ppv));
   if(document.fonts) document.fonts.load(`16px ${FACES[S.face].stack}`).then(()=>{ sig=''; relayout(); });
+}
+function onSetting(e){
+  S.title=$('sTitle').value; S.author=$('sAuthor').value;
+  if(e && ['sTrim','sFace','sSize','sLead'].includes(e.target.id)){ S.template=''; $('sStyle').value=''; }
+  S.trim=$('sTrim').value; S.face=$('sFace').value;
+  S.size=+$('sSize').value; S.leading=Math.max(+$('sLead').value, +$('sSize').value); S.drop=$('sDrop').checked; S.verso=$('sVerso').value;
+  ensureOption($('sLead'), S.leading, S.leading+' pt'); $('sLead').value = String(S.leading);
+  refreshLayout();
   $('bookName').textContent = S.title;
   markDirty();
 }
+function applyTemplate(t){
+  S.template = t.id; S.trim = 'custom'; S.custom = {...t.trim};
+  S.face = t.face; S.size = t.size; S.leading = t.leading;
+  syncForm(); refreshLayout(); markDirty();
+}
 ['sTitle','sAuthor'].forEach(id=>$(id).addEventListener('input', onSetting));
 ['sTrim','sFace','sSize','sLead','sDrop','sVerso'].forEach(id=>$(id).addEventListener('change', onSetting));
+$('sStyle').addEventListener('change', ()=>{
+  const t = allTemplates().find(x=>x.id===$('sStyle').value);
+  if(t){ applyTemplate(t); toast(`Using “${t.name}”.`); }
+});
+
+/* ================================================================ match a book */
+
+// Work out a page template from measurements of a real book:
+// - the trim size and the line count are measured directly;
+// - type size comes from one typed line (its natural width at 100px tells
+//   how big the type must be to fill the text width), or from words per line;
+// - leading comes from the text height if measured, otherwise from the usual
+//   share of the page a novel's text block takes up.
+const MM = 25.4;
+const isMetric = () => $('mMetric').checked;
+function mNum(id, length){
+  const v = parseFloat($(id).value);
+  if(!isFinite(v) || v<=0) return null;
+  return length && isMetric() ? v/MM : v;
+}
+const r1 = v => Math.round(v*10)/10, r2 = v => Math.round(v*100)/100;
+
+function solveTemplate(){
+  const w = mNum('mW',true), h = mNum('mH',true), lines = Math.round(mNum('mLines') || 0);
+  const typed = $('mLine').value.split('\n').map(l=>l.trim().replace(/\s+/g,' ')).filter(l=>l.split(' ').length >= 4);
+  const line = typed.join('\n'), words5 = mNum('mWords');
+  const faceKey = $('mFace').value, face = FACES[faceKey];
+  const unit = isMetric() ? 'millimetres' : 'inches';
+  if(!w || !h || !lines) return {error:'Fill in the page width, the height and the lines on a full page.'};
+  if(w < 3 || w > 10 || h < 4.5 || h > 14) return {error:`That page size looks unusual for a novel. Check the measurements are in ${unit}.`};
+  if(lines < 12 || lines > 70) return {error:'Lines on a full page should be between 12 and 70. Count a page with no chapter heading or break.'};
+  const useLine = typed.length > 0;
+  if(!useLine && !words5) return {error:'Type one full line from the book (at least four words), or count the words on 5 full lines.'};
+
+  const ctx = measureCtx || (measureCtx = document.createElement('canvas').getContext('2d'));
+  ctx.font = `100px ${face.stack}`;
+  const corpus = SAMPLE.replace(/[#*]/g,'').replace(/\s+/g,' ').trim();
+  const perWord100 = ctx.measureText(corpus).width / corpus.split(' ').length;   // average word + space at 100px
+
+  const W = w*96, H = h*96;
+  const tw = mNum('mTW',true), th = mNum('mTH',true);
+  const twPx = tw ? tw*96 : W*0.73;
+  if(twPx > W*0.95) return {error:'The text width is wider than the page. Check the measurement.'};
+
+  // A justified line is stretched to fill the measure. On average its
+  // natural width falls about half a word short of the full width, so solve
+  //   natural(fs) + 0.45 * averageWord(fs) = textWidth
+  // using the mean of the typed lines.
+  const natural100 = useLine ? typed.reduce((sum,l)=>sum + ctx.measureText(l).width, 0) / typed.length : 0;
+  let fsPx = useLine ? 100 * twPx / (natural100 + 0.45*perWord100)
+                     : 100 * twPx / ((words5/5) * perWord100);
+  let size = r1(fsPx*0.75);
+  const warnings = [];
+  if(size < 7.5 || size > 15) warnings.push(`A ${size} pt type size is unusual for a novel. Check the line or word count.`);
+  size = Math.min(16, Math.max(7, size));
+  fsPx = size/0.75;
+
+  let leadPx = th ? (th*96 - 0.95*fsPx)/(lines-1) : (H*0.795)/lines;
+  let leading = r1(leadPx*0.75);
+  if(leading < size*1.05){ leading = r1(size*1.1); warnings.push('The lines came out very tight, so the leading was opened up a little. Measuring the text height will make this exact.'); }
+  if(leading > size*1.7){ warnings.push('The leading came out unusually loose. Check the lines per page and the text height.'); }
+  leadPx = leading/0.75;
+
+  const blockH = lines*leadPx;
+  if(blockH > H*0.96) return {error:'That many lines at this size won’t fit on the page. Check the line count and page height.'};
+  const sidePx = (W - twPx)/2;
+  const topPx = (H - blockH)*0.45;                 // novels sit the text block slightly high
+  const bottomPx = H - topPx - blockH - 0.5;       // so exactly `lines` lines fit
+  const wpl = twPx / (perWord100*fsPx/100);
+
+  return {
+    name: $('mName').value.trim() || `Matched ${w.toFixed(2)} × ${h.toFixed(2)} in`,
+    trim: {w:r2(w), h:r2(h), side:sidePx/96, top:topPx/96, bottom:bottomPx/96},
+    face: faceKey, size, leading, lines, wpl, warnings,
+    measured: {w, h, lines, line: useLine ? line : '', words5: words5 || null, textWidth: tw, textHeight: th}
+  };
+}
+
+function solveAndShow(){
+  const r = solveTemplate();
+  $('mSave').disabled = !!r.error;
+  if(r.error){ $('mResult').innerHTML = esc(r.error); return r; }
+  $('mResult').innerHTML =
+    `<b>${esc(FACES[r.face].name)} ${r.size}/${r.leading} pt</b> on a ${r.trim.w} × ${r.trim.h} in page<br>`
+    + `${r.lines} lines a page · about ${Math.round(r.wpl)} words a line · about ${Math.round(r.wpl*r.lines/10)*10} words a full page`
+    + r.warnings.map(x=>`<br><span class="warn">${esc(x)}</span>`).join('');
+  return r;
+}
+['mName','mW','mH','mLines','mLine','mWords','mTW','mTH'].forEach(id=>$(id).addEventListener('input', solveAndShow));
+$('mFace').addEventListener('change', ()=>{ $('mFace').dataset.touched='1'; solveAndShow(); });
+$('mMetric').addEventListener('change', ()=>{
+  document.querySelectorAll('#match .unit').forEach(u=>u.textContent = isMetric() ? 'mm' : 'in');
+  solveAndShow();
+});
+$('mClear').onclick = ()=>{ ['mName','mW','mH','mLines','mLine','mWords','mTW','mTH'].forEach(id=>$(id).value=''); solveAndShow(); };
+$('mSave').onclick = ()=>{
+  const r = solveTemplate(); if(r.error) return;
+  const t = {id:'u-'+Date.now().toString(36), name:r.name, trim:r.trim, face:r.face, size:r.size, leading:r.leading, measured:r.measured, created:new Date().toISOString()};
+  config.templates = [...(config.templates||[]), t];
+  saveConfig();
+  applyTemplate(t);
+  renderTemplates();
+  toast(`Saved “${t.name}” and applied it. ${G.lines} lines a page.`);
+};
+
+function renderTemplates(){
+  const mine = config.templates || [];
+  $('tplList').innerHTML = mine.map(t=>`<li class="${t.id===S.template?'current':''}"><span class="meta"><b>${esc(t.name)}</b><span>${esc(FACES[t.face]?.name||t.face)} ${t.size}/${t.leading} · ${t.trim.w} × ${t.trim.h} in${t.measured?.lines?` · ${t.measured.lines} lines`:''}</span></span>`
+    + `<button class="btn" data-use="${esc(t.id)}">Use</button><button class="btn" data-del="${esc(t.id)}">Delete</button></li>`).join('')
+    || '<li class="empty">None yet. Measure a book above and save it.</li>';
+}
+$('tplList').addEventListener('click', e=>{
+  const use = e.target.closest('[data-use]'), del = e.target.closest('[data-del]');
+  if(use){ const t = (config.templates||[]).find(x=>x.id===use.dataset.use); if(t){ applyTemplate(t); renderTemplates(); toast(`Using “${t.name}”.`); } }
+  if(del){
+    if(del.dataset.armed!=='1'){ del.dataset.armed='1'; del.textContent='Confirm'; setTimeout(()=>{ if(del.isConnected){ del.dataset.armed=''; del.textContent='Delete'; } }, 4000); return; }
+    config.templates = (config.templates||[]).filter(x=>x.id!==del.dataset.del);
+    saveConfig(); renderTemplates(); syncForm();
+    toast('Template deleted. Books already using it keep their page settings.');
+  }
+});
+
+/* ================================================================ updates */
+
+async function checkForUpdates(manual){
+  if(!Store.desktop) return;
+  try{
+    const u = await Store.checkUpdate();
+    if(u){
+      if(!$('alert').hidden && !manual) return;   // don't cover a more important message
+      showAlert('update', `Galley Proof ${u.version} is ready to install (you have ${u.current}).`, 'Update and restart', installUpdate, 'Later', null);
+    } else if(manual) toast('You have the latest version.');
+  }catch(err){ if(manual) toast(String(err), true); }
+}
+async function installUpdate(){
+  await saveNow();
+  if(saveError){ toast('Your book has to save before updating. Fix the save problem first.', true); return; }
+  try{ await Store.snapshot(bookPath, toMarkdown()); }catch(e){}
+  toast('Downloading the update. Galley Proof will restart by itself.', false, 180000);
+  try{ await Store.installUpdate(); }catch(err){ toast(String(err), true, 9000); }
+}
+$('bUpdate').onclick = ()=>checkForUpdates(true);
 
 function saveConfig(){ Store.setConfig(config).catch(()=>{}); }
 ['eTo','eUser','ePass','eHost','ePort'].forEach(id=>$(id).addEventListener('change', ()=>{
@@ -602,7 +786,7 @@ async function sendEmail(){
   const subject = `${title} — ${date} — ${words.toLocaleString()} words`;
   const body = [
     `${title}${S.author ? ' by '+S.author : ''}`,
-    `${words.toLocaleString()} words, ${plast-2} pages (${TRIMS[S.trim].w} × ${TRIMS[S.trim].h} in, ${G.lines} lines a page).`,
+    `${words.toLocaleString()} words, ${plast-2} pages (${trimOf().w} × ${trimOf().h} in, ${G.lines} lines a page).`,
     `This session: ${added>=0?'+':'−'}${Math.abs(added).toLocaleString()} words.`,
     '',
     'The full manuscript is attached as a text file. Chapters start with "#", *asterisks* mark italics, and "* * *" is a scene break. Import it into Galley Proof to see it as pages again.',
@@ -684,7 +868,7 @@ function status(){
   else if(lastSavedAt) save = `<span class="saved">Saved ${lastSavedAt.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})}</span>`;
   else if(bookPath) save = `<span class="saved">Saved</span>`;
   $('status').innerHTML = parts.map(p=>`<span>${p}</span>`).join('') + save;
-  const trim = TRIMS[S.trim]||TRIMS['55'];
+  const trim = trimOf();
   $('spec').innerHTML = `${esc(FACES[S.face].name)} ${S.size}/${S.leading} pt · ${trim.w} × ${trim.h} in<br>${G.lines} lines a page · text block ${(G.T/96).toFixed(2)} in wide · about ${Math.round(wpl)} words a line`;
 }
 
@@ -711,6 +895,7 @@ async function boot(){
     }
   }
   if(document.fonts) document.fonts.ready.then(()=>{ sig=''; relayout(); });
+  setTimeout(()=>checkForUpdates(false), 5000);
 }
 
 let rz; window.addEventListener('resize', ()=>{ clearTimeout(rz); rz=setTimeout(()=>{ const firstPage=view*ppv; fit(); sig=''; relayout(); setView(Math.floor(firstPage/ppv)); followCaret(); }, 120); });
