@@ -27,6 +27,11 @@ window.Store = (() => {
       checkUpdate: () => inv('check_update'),
       installUpdate: () => inv('install_update'),
       appVersion: () => inv('app_version'),
+      setMenuState: state => inv('set_menu_state', { state }),
+      pickBookFolder: () => inv('pick_book_folder'),
+      exportBook: (kind, fileName, manuscript, title, author) =>
+        inv('export_book', { kind, fileName, manuscript, title, author }),
+      onMenu: fn => T.event.listen('menu', e => fn(e.payload)),
     };
   }
 
@@ -77,5 +82,9 @@ window.Store = (() => {
     checkUpdate: async () => null,
     installUpdate: async () => {},
     appVersion: async () => 'browser preview',
+    setMenuState: async () => {},
+    pickBookFolder: async () => { throw 'Opening folders works in the desktop app.'; },
+    exportBook: async () => { throw 'Exporting works in the desktop app.'; },
+    onMenu: () => {},
   };
 })();

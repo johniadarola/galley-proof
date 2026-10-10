@@ -11,6 +11,9 @@
 //! Every write goes to a temporary file first and is then renamed over the
 //! old one, so a crash or power cut mid-save leaves the last good copy intact.
 
+mod export;
+mod menu;
+
 use chrono::{Local, NaiveDateTime};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -33,13 +36,17 @@ fn err<E: std::fmt::Display>(context: &str) -> impl FnOnce(E) -> String + '_ {
 
 /// Write a file safely: temp file, flush to disk, then rename into place.
 fn write_atomic(path: &Path, contents: &str) -> Res<()> {
+    write_atomic_bytes(path, contents.as_bytes())
+}
+
+fn write_atomic_bytes(path: &Path, contents: &[u8]) -> Res<()> {
     let dir = path.parent().ok_or("File has no folder")?;
     fs::create_dir_all(dir).map_err(err("Could not create the folder"))?;
     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
     let tmp = dir.join(format!(".{name}.saving"));
     {
         let mut f = fs::File::create(&tmp).map_err(err("Could not write the file"))?;
-        f.write_all(contents.as_bytes()).map_err(err("Could not write the file"))?;
+        f.write_all(contents).map_err(err("Could not write the file"))?;
         f.sync_all().map_err(err("Could not finish writing the file"))?;
     }
     fs::rename(&tmp, path).map_err(err("Could not replace the old file"))?;
@@ -446,6 +453,64 @@ fn app_version(app: AppHandle) -> String {
     app.package_info().version.to_string()
 }
 
+// ------------------------------------------------------- menus and dialogs
+
+#[tauri::command]
+fn set_menu_state(app: AppHandle, state: menu::MenuState) -> Res<()> {
+    let m = menu::build(&app, &state).map_err(err("Could not build the menu"))?;
+    app.set_menu(m).map_err(err("Could not set the menu"))?;
+    Ok(())
+}
+
+/// Let the writer pick a book folder from anywhere (Dropbox, a USB stick…).
+#[tauri::command]
+async fn pick_book_folder(app: AppHandle) -> Res<Option<String>> {
+    use tauri_plugin_dialog::DialogExt;
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        app.dialog().file().set_title("Open a book folder").blocking_pick_folder()
+    })
+    .await
+    .map_err(err("The folder picker closed unexpectedly"))?;
+    let Some(dir) = picked.and_then(|f| f.into_path().ok()) else { return Ok(None) };
+    if !dir.join(MANUSCRIPT).exists() {
+        return Err(format!(
+            "That folder isn't a Galley Proof book (it has no {MANUSCRIPT}). Pick the folder that holds the book's files."
+        ));
+    }
+    Ok(Some(dir.to_string_lossy().into_owned()))
+}
+
+/// Ask where to save, then write the manuscript as plain text or Word.
+/// Returns where it was saved, or None if the writer cancelled.
+#[tauri::command]
+async fn export_book(
+    app: AppHandle,
+    kind: String,
+    file_name: String,
+    manuscript: String,
+    title: String,
+    author: String,
+) -> Res<Option<String>> {
+    use tauri_plugin_dialog::DialogExt;
+    let (bytes, label, ext) = match kind.as_str() {
+        "docx" => (export::to_docx(&manuscript, &title, &author)?, "Word document", "docx"),
+        _ => (manuscript.into_bytes(), "Plain text", "txt"),
+    };
+    let docs = app.path().document_dir().ok();
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        let mut d = app.dialog().file().set_title("Export").set_file_name(&file_name).add_filter(label, &[ext]);
+        if let Some(dir) = docs {
+            d = d.set_directory(dir);
+        }
+        d.blocking_save_file()
+    })
+    .await
+    .map_err(err("The save window closed unexpectedly"))?;
+    let Some(path) = picked.and_then(|f| f.into_path().ok()) else { return Ok(None) };
+    write_atomic_bytes(&path, &bytes)?;
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
 // --------------------------------------------------------------------- run
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -453,6 +518,9 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init())
+        .menu(|app| menu::build(app, &menu::MenuState::default()))
+        .on_menu_event(|app, event| menu::on_event(app, event.id().as_ref()))
         .manage(PendingUpdate(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             get_config,
@@ -469,7 +537,10 @@ pub fn run() {
             send_email,
             check_update,
             install_update,
-            app_version
+            app_version,
+            set_menu_state,
+            pick_book_folder,
+            export_book
         ])
         .run(tauri::generate_context!())
         .expect("error while running Galley Proof");

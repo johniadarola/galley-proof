@@ -474,6 +474,7 @@ async function openBook(path){
   try{ await Store.snapshot(path, b.manuscript); }catch(e){}
   lastSnapAt = Date.now(); wroteSinceSnap = false;
   config.last_book = path; saveConfig();
+  rememberRecent(path, S.title);
 
   const em = readEmergency();
   if(em && em.path === path && em.md && em.md !== b.manuscript){
@@ -496,16 +497,7 @@ $('bookList').addEventListener('click', async e=>{
   const b = e.target.closest('[data-open]'); if(!b) return;
   try{ await openBook(b.dataset.open); closePanels(); }catch(err){ toast('Could not open that book: '+err, true); }
 });
-$('bkNew').onclick = async ()=>{
-  try{
-    await saveNow();
-    const settings = {...S, title:'Untitled'};
-    const path = await Store.createBook('Untitled', '# \n', JSON.stringify(settings, null, 2));
-    await openBook(path);
-    openPanel('setup'); $('sTitle').focus(); $('sTitle').select();
-    toast('New book started. Give it a title.');
-  }catch(err){ toast('Could not start a new book: '+err, true); }
-};
+$('bkNew').onclick = ()=>newBook();
 $('bkReveal').onclick = ()=>Store.reveal(bookPath || '').catch(err=>toast(String(err), true));
 
 /* ================================================================ history */
@@ -594,7 +586,9 @@ function onSetting(e){
   refreshLayout();
   $('bookName').textContent = S.title;
   markDirty();
+  clearTimeout(recentT); recentT = setTimeout(()=>{ if(bookPath) rememberRecent(bookPath, S.title); }, 1500);
 }
+let recentT;
 function applyTemplate(t){
   S.template = t.id; S.trim = 'custom'; S.custom = {...t.trim};
   S.face = t.face; S.size = t.size; S.leading = t.leading;
@@ -710,11 +704,17 @@ $('mSave').onclick = ()=>{
 function renderTemplates(){
   const mine = config.templates || [];
   $('tplList').innerHTML = mine.map(t=>`<li class="${t.id===S.template?'current':''}"><span class="meta"><b>${esc(t.name)}</b><span>${esc(FACES[t.face]?.name||t.face)} ${t.size}/${t.leading} · ${t.trim.w} × ${t.trim.h} in${t.measured?.lines?` · ${t.measured.lines} lines`:''}</span></span>`
-    + `<button class="btn" data-use="${esc(t.id)}">Use</button><button class="btn" data-del="${esc(t.id)}">Delete</button></li>`).join('')
+    + `<button class="btn" data-use="${esc(t.id)}">Use</button><button class="btn" data-copy="${esc(t.id)}" title="Copy this template as text, to share or send">Copy</button><button class="btn" data-del="${esc(t.id)}">Delete</button></li>`).join('')
     || '<li class="empty">None yet. Measure a book above and save it.</li>';
 }
 $('tplList').addEventListener('click', e=>{
-  const use = e.target.closest('[data-use]'), del = e.target.closest('[data-del]');
+  const use = e.target.closest('[data-use]'), del = e.target.closest('[data-del]'), cp = e.target.closest('[data-copy]');
+  if(cp){
+    const t = (config.templates||[]).find(x=>x.id===cp.dataset.copy); if(!t) return;
+    const text = 'Galley Proof template\n' + JSON.stringify({name:t.name, trim:t.trim, face:t.face, size:t.size, leading:t.leading, measured:t.measured}, null, 2);
+    navigator.clipboard.writeText(text).then(()=>toast('Template copied. Paste it wherever you like.'), ()=>{ $('copyBox').hidden=false; $('copyBox').value=text; openPanel('setup'); $('copyBox').hidden=false; $('copyBox').value=text; $('copyBox').select(); });
+    return;
+  }
   if(use){ const t = (config.templates||[]).find(x=>x.id===use.dataset.use); if(t){ applyTemplate(t); renderTemplates(); toast(`Using “${t.name}”.`); } }
   if(del){
     if(del.dataset.armed!=='1'){ del.dataset.armed='1'; del.textContent='Confirm'; setTimeout(()=>{ if(del.isConnected){ del.dataset.armed=''; del.textContent='Delete'; } }, 4000); return; }
@@ -825,17 +825,135 @@ function toast(text, bad, ms){
   clearTimeout(toastT); toastT=setTimeout(()=>t.hidden=true, ms || (bad?6000:2600));
 }
 
-/* ================================================================ keys and focus */
+/* ================================================================ actions, menus and keys */
 
+// Every command lives here once. The native menu, the toolbar and the
+// keyboard all call run(); shortcuts that both the menu and the page might
+// see are only carried out once.
+const ACTIONS = {
+  new_book:    ()=>newBook(),
+  open_book:   ()=>openPanel('books'),
+  books:       ()=>openPanel('books'),
+  open_folder: ()=>openBookFolder(),
+  save:        ()=>snapshotNow(true),
+  duplicate:   ()=>duplicateBook(),
+  history:     ()=>openPanel('history'),
+  import:      ()=>$('fileIn').click(),
+  export_docx: ()=>exportAs('docx'),
+  export_txt:  ()=>exportAs('txt'),
+  email:       ()=>sendEmail(),
+  reveal:      ()=>Store.reveal(bookPath || '').catch(err=>toast(String(err), true)),
+  book_setup:  ()=>openPanel('setup'),
+  settings:    ()=>openPanel('setup'),
+  page_style:  ()=>{ openPanel('setup'); $('sStyle').focus(); },
+  match:       ()=>openPanel('match'),
+  italic:      ()=>{ if(caretInEditor()) document.execCommand('italic'); },
+  chapter:     ()=>$('bChap').click(),
+  scene:       ()=>$('bScene').click(),
+  prev:        ()=>turn(-1),
+  next:        ()=>turn(1),
+  toolbar:     ()=>setToolbar(!config.toolbar_hidden),
+  focus:       ()=>setFocus(!document.body.classList.contains('focus')),
+  check_updates: ()=>checkForUpdates(true),
+};
+const lastRun = {};
+function run(action, source){
+  const now = Date.now(), prev = lastRun[action];
+  if(prev && prev.source !== source && now - prev.t < 450){ lastRun[action] = null; return; }   // same keypress seen twice
+  lastRun[action] = {source, t:now};
+  const m = /^recent:(\d+)$/.exec(action);
+  if(m){ const r = (config.recent||[])[+m[1]]; if(r) openBook(r.path).catch(err=>{ toast('Could not open that book: '+err, true); forgetRecent(r.path); }); return; }
+  const fn = ACTIONS[action]; if(fn) fn();
+}
+function caretInEditor(){ const s = getSelection(); return s.rangeCount && editor.contains(s.anchorNode); }
+
+// Keyboard shortcuts, matching the menu. Keys are written as they appear in
+// the menu: mod = ⌘ on a Mac, Ctrl elsewhere.
+const KEYS = {
+  'mod+n':'new_book', 'mod+o':'open_book', 'mod+shift+o':'open_folder', 'mod+s':'save',
+  'mod+shift+h':'history', 'mod+shift+i':'import', 'mod+shift+e':'email', 'mod+shift+p':'book_setup',
+  'mod+,':'settings', 'mod+i':'italic', 'mod+shift+n':'chapter', 'mod+shift+8':'scene', 'mod+shift+*':'scene',
+  'mod+shift+l':'books', 'alt+mod+arrowleft':'prev', 'alt+mod+arrowright':'next', 'alt+mod+t':'toolbar',
+  'mod+shift+f':'focus'
+};
+function keyName(e){
+  const parts = [];
+  if(e.altKey) parts.push('alt');
+  if(e.ctrlKey || e.metaKey) parts.push('mod');
+  if(e.shiftKey) parts.push('shift');
+  let k = e.key.toLowerCase();
+  if(e.code && /^Digit\d$/.test(e.code)) k = e.code.slice(5);            // shift+8 gives "*" on most layouts
+  if(e.altKey && e.code && /^Key[A-Z]$/.test(e.code)) k = e.code.slice(3).toLowerCase();  // ⌥ changes letters on a Mac
+  parts.push(k);
+  return parts.join('+');
+}
 document.addEventListener('keydown', e=>{
-  const mod = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
-  if(mod && e.shiftKey && k==='e'){ e.preventDefault(); sendEmail(); return; }
-  if(mod && !e.shiftKey && k==='s'){ e.preventDefault(); snapshotNow(true); return; }
-  if(e.target.closest && e.target.closest('.panel')) { if(e.key==='Escape') closePanels(); return; }
-  if(e.key==='PageDown' || (e.altKey && e.key==='ArrowRight')){ e.preventDefault(); turn(1); }
-  else if(e.key==='PageUp' || (e.altKey && e.key==='ArrowLeft')){ e.preventDefault(); turn(-1); }
+  const action = KEYS[keyName(e)];
+  if(action){ e.preventDefault(); run(action, 'key'); return; }
+  if(e.target.closest && e.target.closest('.panel')){ if(e.key==='Escape') closePanels(); return; }
+  if(e.key==='PageDown'){ e.preventDefault(); turn(1); }
+  else if(e.key==='PageUp'){ e.preventDefault(); turn(-1); }
   else if(e.key==='Escape'){ if(PANELS.some(p=>!$(p).hidden)) closePanels(); else if(document.body.classList.contains('focus')) setFocus(false); }
 });
+Store.onMenu(id=>run(id, 'menu'));
+
+function setToolbar(hidden){
+  config.toolbar_hidden = !!hidden; saveConfig(); pushMenuState();
+  document.body.classList.toggle('notoolbar', !!hidden);
+  requestAnimationFrame(()=>{ fit(); relayout(); });
+}
+
+// The menu shows recent books and the toolbar state; keep it current.
+function pushMenuState(){
+  Store.setMenuState({ recent: config.recent || [], toolbar_hidden: !!config.toolbar_hidden }).catch(()=>{});
+}
+function rememberRecent(path, title){
+  const list = (config.recent || []).filter(r=>r.path !== path);
+  list.unshift({path, title: title || 'Untitled'});
+  config.recent = list.slice(0, 10);
+  saveConfig(); pushMenuState();
+}
+function forgetRecent(path){
+  config.recent = (config.recent || []).filter(r=>r.path !== path);
+  saveConfig(); pushMenuState();
+}
+
+/* ================================================================ more book commands */
+
+async function newBook(){
+  try{
+    await saveNow();
+    const settings = {...S, title:'Untitled'};
+    const path = await Store.createBook('Untitled', '# \n', JSON.stringify(settings, null, 2));
+    await openBook(path);
+    openPanel('setup'); $('sTitle').focus(); $('sTitle').select();
+    toast('New book started. Give it a title.');
+  }catch(err){ toast('Could not start a new book: '+err, true); }
+}
+async function openBookFolder(){
+  try{
+    const path = await Store.pickBookFolder();
+    if(path){ await openBook(path); closePanels(); toast(`Opened “${S.title}”.`); }
+  }catch(err){ toast(String(err), true, 8000); }
+}
+async function duplicateBook(){
+  try{
+    await saveNow();
+    const title = `${S.title || 'Untitled'} (copy)`;
+    const path = await Store.createBook(title, toMarkdown(), JSON.stringify({...S, title}, null, 2));
+    await openBook(path);
+    toast(`Now working in “${title}”. The original is unchanged.`, false, 5000);
+  }catch(err){ toast('Could not duplicate the book: '+err, true); }
+}
+async function exportAs(kind){
+  if(!Store.desktop){ toast('Exporting works in the desktop app. Use Copy manuscript instead.', true); return; }
+  await saveNow();
+  const base = (S.title || 'Manuscript').replace(/[<>:"/\\|?*]+/g,' ').trim() || 'Manuscript';
+  try{
+    const where = await Store.exportBook(kind, `${base}.${kind==='docx'?'docx':'txt'}`, toMarkdown(), S.title || '', S.author || '');
+    if(where) toast(`Exported to ${where}`, false, 5000);
+  }catch(err){ toast(String(err), true, 8000); }
+}
 
 function setFocus(on){ document.body.classList.toggle('focus', on); $('unfocus').hidden=!on; closePanels(); requestAnimationFrame(()=>{ fit(); relayout(); followCaret(); }); }
 $('bFocus').onclick = ()=>setFocus(true); $('unfocus').onclick = ()=>setFocus(false);
@@ -877,6 +995,8 @@ function status(){
 async function boot(){
   applyGeometry();
   try{ config = await Store.getConfig() || {}; }catch(e){ config = {}; }
+  document.body.classList.toggle('notoolbar', !!config.toolbar_hidden);
+  pushMenuState();
   let opened = false;
   if(config.last_book){ try{ await openBook(config.last_book); opened = true; }catch(e){} }
   if(!opened){

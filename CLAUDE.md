@@ -10,6 +10,8 @@ The owner is a writer and hobbyist developer, not a professional programmer. Exp
 - Release: bump `version` in both `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml` (and package.json), push to main; GitHub Actions builds installers into Releases.
 - Updates: tauri-plugin-updater; builds are signed in CI with the `TAURI_SIGNING_PRIVATE_KEY` repo secret (key has no password). The public key is in tauri.conf.json. Losing the private key means installed copies can't verify new updates, so never replace the pubkey casually.
 - Templates: built-in ones in `BUILTIN_TEMPLATES` (app.js); measured ones in app settings `templates`; a book using one stores `trim:'custom'` + `custom:{w,h,side,top,bottom}` (inches) in book.json.
+- Menus: native menu in `src-tauri/src/menu.rs`; items emit a `menu` event with their id, handled by `ACTIONS` in app.js. Keyboard shortcuts in `KEYS` (app.js) mirror the menu accelerators; `run()` drops the duplicate when menu and keydown both fire. Edit-menu items are the OS's own. Menu is rebuilt via `set_menu_state` when recent books or the toolbar setting change.
+- Export: `src-tauri/src/export.rs` (plain text, Word in standard manuscript format).
 - Fonts are bundled in `src/fonts` (all SIL Open Font License) so the app works offline.
 - Before pushing: `cargo test --lib` in `src-tauri`, and `node --check` the JS files.
 - Design and roadmap: the "Galley Proof — Design Document" Claude Doc. Next phases: book templates matching real novels' density, then typesetting polish (own line breaking, right-hand chapter openers, smart punctuation).

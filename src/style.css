@@ -47,7 +47,7 @@ footer{display:flex; flex-wrap:wrap; gap:4px 18px; justify-content:center; paddi
 footer .saved{color:var(--accent)}
 footer .unsaved{color:var(--warn); font-weight:500}
 
-body.focus header, body.focus footer{display:none}
+body.focus header, body.focus footer, body.notoolbar header{display:none}
 #unfocus{position:fixed; top:10px; right:12px; z-index:5; opacity:.35; background:var(--chrome)}
 #unfocus:hover{opacity:1}
 

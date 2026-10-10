@@ -46,15 +46,36 @@ Galley Proof works out the type size, leading and margins that reproduce that pa
 
 Galley Proof checks for a new version a few seconds after it opens. When one is ready, a bar offers **Update and restart**; your book is saved and a copy put in History first. You can also check from **Book setup → About**. Versions before 0.2.0 can't update themselves, so install 0.2.0 by hand once.
 
-## Keyboard
+## Menus and keyboard
 
-| Keys | Action |
-| --- | --- |
-| <kbd>Ctrl</kbd>/<kbd>⌘</kbd> <kbd>I</kbd> | Italic |
-| <kbd>Ctrl</kbd>/<kbd>⌘</kbd> <kbd>S</kbd> | Save a copy to History now |
-| <kbd>Ctrl</kbd>/<kbd>⌘</kbd> <kbd>Shift</kbd> <kbd>E</kbd> | Email the manuscript to yourself |
-| <kbd>Page Up</kbd> / <kbd>Page Down</kbd> | Turn pages |
-| <kbd>Esc</kbd> | Close a panel or leave Focus |
+Everything is in the menu bar; the toolbar can be hidden with **View → Hide Toolbar**. On a Mac, ⌘ is the command key; on Windows use Ctrl.
+
+| Menu | Item | Keys |
+| --- | --- | --- |
+| File | New Book | ⌘N |
+| File | Open Book… (your books) | ⌘O |
+| File | Open Book Folder… (a book anywhere, e.g. Dropbox) | ⇧⌘O |
+| File | Open Recent | |
+| File | Save (also puts a copy in History) | ⌘S |
+| File | Duplicate Book | |
+| File | Browse History… | ⇧⌘H |
+| File | Import Text… | ⇧⌘I |
+| File | Export → Word Document (manuscript format) / Plain Text | |
+| File | Email to Myself | ⇧⌘E |
+| File | Show in Finder | |
+| File | Book Setup… | ⇧⌘P |
+| Edit | Undo, Redo, Cut, Copy, Paste, Select All | the usual |
+| Format | Italic | ⌘I |
+| Format | New Chapter | ⇧⌘N |
+| Format | Scene Break | ⇧⌘8 (⇧8 is the asterisk) |
+| Format | Page Style…, Match a Book on My Shelf… | |
+| View | Books… | ⇧⌘L |
+| View | Previous / Next Pages | ⌥⌘← / ⌥⌘→ (also Page Up / Page Down) |
+| View | Hide Toolbar | ⌥⌘T |
+| View | Focus Mode | ⇧⌘F |
+| Galley Proof | Settings… / Check for Updates… | ⌘, |
+
+The Word export uses standard manuscript format (12 pt Times New Roman, double-spaced, chapters on new pages), the layout agents and editors expect.
 
 ## For development
 
