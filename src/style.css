@@ -141,6 +141,5 @@ body:not(.desktop) .desktop-only{display:none!important}
   font-variant-caps:all-small-caps; letter-spacing:.22em; color:var(--ink-soft)}
 #editor h2.chapter.empty::after{content:"Chapter title"; opacity:.3; font-style:italic}
 #editor h2.chapter + p::first-line{font-variant-caps:small-caps; letter-spacing:.03em}
-#book.drops #editor h2.chapter + p:not(.editing)::first-letter{-webkit-initial-letter:3; initial-letter:3; margin-right:.09em; color:var(--ink)}
 #editor p.scene{text-indent:0; text-align:center; letter-spacing:.6em; color:var(--ink-soft)}
 #editor i, #editor em{font-style:italic}

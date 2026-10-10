@@ -27,7 +27,7 @@ const FACES = {
 };
 const SIZES = [9.5,10,10.5,11,11.5,12,12.5,13];
 const LEADS = [12,12.5,13,13.5,14,14.5,15,15.5,16,16.5,17];
-const DEFAULTS = {title:'Untitled', author:'', trim:'55', custom:null, template:'', face:'garamond', size:11.5, leading:14.5, drop:true, verso:'title'};
+const DEFAULTS = {title:'Untitled', author:'', trim:'55', custom:null, template:'', face:'garamond', size:11.5, leading:14.5, verso:'title'};
 
 // Built-in starting points: typical values for each kind of book, not
 // measurements of any particular title. Templates the writer measures with
@@ -434,7 +434,6 @@ function applyGeometry(){
   book.style.setProperty('--fs', fs+'px');
   book.style.setProperty('--L', L+'px');
   book.style.height = H+'px';
-  book.classList.toggle('drops', !!S.drop);
   book.style.setProperty('--top', top+'px');
   book.style.setProperty('--T', T+'px');
   book.style.setProperty('--gap', (2*m)+'px');
@@ -666,31 +665,13 @@ function keepCaretChapterLive(){
   liveSecs = want;
   return true;
 }
-// WebKit (the Mac's engine) can't type reliably next to a drop cap: letters
-// land in the chapter title or replace each other, and clicks after the big
-// letter don't place the cursor. So while the cursor is in a chapter's
-// opening paragraph, that paragraph is shown without its drop cap.
-let editingOpening = null;
-function markOpeningEdit(){
-  const sel = getSelection();
-  let p = null;
-  if(sel.rangeCount && editor.contains(sel.anchorNode)){
-    const b = topBlock(sel.anchorNode);
-    if(b && b.tagName === 'P' && b.previousElementSibling && b.previousElementSibling.tagName === 'H2') p = b;
-  }
-  if(p === editingOpening) return;
-  if(editingOpening) setClass(editingOpening, 'editing', false);
-  if(p) setClass(p, 'editing', true);
-  editingOpening = p;
-}
 function sectionOfNode(n){ const b = topBlock(n); return b ? b.parentNode : (isSection(n) ? n : null); }
 document.addEventListener('selectionchange', ()=>{
   const sel=getSelection(); if(!sel.rangeCount || !editor.contains(sel.anchorNode)) return;
-  keepCaretChapterLive(); markOpeningEdit();
+  keepCaretChapterLive();
   requestAnimationFrame(followCaret);
 });
 editor.addEventListener('beforeinput', ()=>{
-  markOpeningEdit();
   if(keepCaretChapterLive()) editor.getBoundingClientRect();   // draw it now, before the edit lands
 });
 editor.addEventListener('mousedown', ()=>{ freeView=false; });
@@ -717,7 +698,7 @@ editor.addEventListener('keydown', e=>{
     // text, making its first paragraph if there isn't one yet.
     e.preventDefault();
     const next = block.nextElementSibling;
-    if(next && next.tagName === 'P'){ caretTo(next, false); keepCaretChapterLive(); markOpeningEdit(); }
+    if(next && next.tagName === 'P'){ caretTo(next, false); keepCaretChapterLive(); }
     else Undo.command(()=>{ caretTo(block, true); newParagraphAfter(); });
   } else if(e.key==='Backspace' && range.collapsed && block && block.tagName==='P' && block.previousElementSibling && block.previousElementSibling.tagName==='H2' && atStart(block, range) && block.textContent.trim()){
     e.preventDefault();   // don't merge the first paragraph into the chapter title
@@ -1019,7 +1000,7 @@ function fillPageControls(){
 function syncForm(){
   fillPageControls();
   $('sTitle').value=S.title; $('sAuthor').value=S.author; $('sTrim').value=S.trim; $('sFace').value=S.face;
-  $('sSize').value=String(S.size); $('sLead').value=String(S.leading); $('sDrop').checked=!!S.drop; $('sVerso').value=S.verso;
+  $('sSize').value=String(S.size); $('sLead').value=String(S.leading); $('sVerso').value=S.verso;
   $('sStyle').value = allTemplates().some(t=>t.id===S.template) ? S.template : '';
   $('sSmart').checked = smartOn();
   const e = config.email || {};
@@ -1035,7 +1016,7 @@ function onSetting(e){
   S.title=$('sTitle').value; S.author=$('sAuthor').value;
   if(e && ['sTrim','sFace','sSize','sLead'].includes(e.target.id)){ S.template=''; $('sStyle').value=''; }
   S.trim=$('sTrim').value; S.face=$('sFace').value;
-  S.size=+$('sSize').value; S.leading=Math.max(+$('sLead').value, +$('sSize').value); S.drop=$('sDrop').checked; S.verso=$('sVerso').value;
+  S.size=+$('sSize').value; S.leading=Math.max(+$('sLead').value, +$('sSize').value); S.verso=$('sVerso').value;
   ensureOption($('sLead'), S.leading, S.leading+' pt'); $('sLead').value = String(S.leading);
   refreshLayout();
   $('bookName').textContent = S.title;
@@ -1049,7 +1030,7 @@ function applyTemplate(t){
   syncForm(); refreshLayout(); markDirty();
 }
 ['sTitle','sAuthor'].forEach(id=>$(id).addEventListener('input', onSetting));
-['sTrim','sFace','sSize','sLead','sDrop','sVerso'].forEach(id=>$(id).addEventListener('change', onSetting));
+['sTrim','sFace','sSize','sLead','sVerso'].forEach(id=>$(id).addEventListener('change', onSetting));
 $('sStyle').addEventListener('change', ()=>{
   const t = allTemplates().find(x=>x.id===$('sStyle').value);
   if(t){ applyTemplate(t); toast(`Using “${t.name}”.`); }
